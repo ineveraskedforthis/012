@@ -1,0 +1,150 @@
+rule compute
+  command = touch $out
+
+build state/factory_list_start : compute
+build state/factory_construction_list_start : compute
+build state/building_construction_list_start : compute
+build state/regiment_list : compute
+
+build state/port_satisfaction_start : compute
+build state/port_price_start : compute
+build state/port_private_size_start : compute
+build state/port_max_private_size_start : compute
+build state/basic_labor_price_start : compute
+build state/basic_labor_sat_start : compute
+build state/advanced_labor_price_start : compute
+build state/advanced_labor_sat_start : compute
+build state/expert_labor_price_start : compute
+build state/expert_labor_sat_start : compute
+build state/actual_probability_to_buy_start : compute
+build state/expected_probability_to_buy_start : compute
+build state/price_start : compute
+
+build state/nation_treasury_start : compute
+
+build state/navy_demand_is_zero : compute
+build state/base_market_navy_demand : compute state/navy_demand_is_zero
+
+build state/private_construction_demand_is_zero : compute
+build state/base_private_construction_demand : compute state/factory_construction_list_start state/building_construction_list_start
+build state/factory_modifiers : compute state/factory_list_start
+
+build state/life_needs_costs_zero : compute
+build state/everyday_needs_costs_zero : compute
+build state/luxury_needs_costs_zero : compute
+
+build state/subsidies_spending_zero : compute
+
+build state/last_treasury : compute state/nation_treasury_start
+
+build state/export_tariff_buffer : compute
+build state/import_tariff_buffer : compute
+build state/coastal_capital_buffer : compute
+build state/state_naval_trade_is_blockaded : compute
+build state/market_leader : compute
+
+build state/army_demand_zero : compute
+build state/army_demand_regiments : compute state/regiment_list state/army_demand_zero
+
+
+build state/construction_demand_zero : compute
+build state/construction_demand_land : compute  state/construction_demand_zero state/nation_treasury_start
+build state/construction_demand_land_naval : compute  state/construction_demand_land state/nation_treasury_start
+build state/construction_demand_land_naval_building_factory : state/construction_demand_land_naval compute state/factory_construction_list_start state/building_construction_list_start state/nation_treasury_start
+
+build state/embargo : compute
+build state/free_trade : compute
+
+build state/embargo_cache : compute state/embargo
+build state/free_trade_cache : compute state/free_trade
+
+build state/blockade : compute
+
+build state/land_ownership : compute
+
+build state/local_subsistence : compute
+
+build state/invention_count : compute
+
+build state/port_capacity : compute state/port_price_start state/port_max_private_size_start
+build state/price_port_capacity : compute state/port_price_start state/port_max_private_size_start
+
+build state/trade_route_volume_start : compute
+
+build state/trade_route_volume_new : compute state/trade_route_volume_start state/export_tariff_buffer state/import_tariff_buffer state/coastal_capital_buffer state/state_naval_trade_is_blockaded state/market_leader state/basic_labor_price state/actual_probability_to_buy_start state/actually_exists_in_nature state/price_start state/expected_probability_to_buy_start
+
+
+build state/gdp_market_zero : compute
+
+build state/life_needs_weight_start : compute
+
+build state/life_needs_costs : compute state/life_needs_costs_zero state/life_needs_weight_start state/price_start state/invention_count
+build state/everyday_needs_costs : compute state/everyday_needs_costs_zero state/everyday_needs_weight_start state/price_start state/invention_count
+build state/luxury_needs_costs : compute state/luxury_needs_costs_zero state/luxury_needs_weight_start state/price_start state/invention_count
+
+build state/demand_start : compute
+build state/demand_zero : compute state/demand_history
+build state/intermediate_demand_zero : compute
+build state/demand_history : compute state/demand_start
+build state/basic_labor_demand_zero : compute
+build state/advanced_labor_demand_zero : compute
+build state/expert_labor_demand_zero : compute
+build state/education_demand_zero : compute
+build state/port_demand_zero : compute
+build state/life_scale_zero : compute
+build state/everyday_scale_zero : compute
+build state/luxury_scale_zero : compute
+
+build state/buffer_demanded : compute
+build state/buffer_consumed_estimation : compute
+
+
+build state/buffer_demanded : compute
+build state/buffer_consumed_est : compute
+build state/artisan_production_zero  : compute
+
+build state/artisan_score_start : compute
+build state/artisan_satisfaction_start : compute
+
+build state/artisan_labor_demand : compute state/artisan_score_start
+
+build state/artisan_employment_unit : compute state/artisan_score_start state/artisan_satisfaction_start
+
+build state/artisan_consumption_data : compute state/artisan_employment_unit state/price_start
+build state/buffer_demanded_artisan : compute state/artisan_consumption_data state/buffer_demanded
+build state/buffer_consumed_est_artisan : compute state/artisan_consumption_data state/buffer_consumed_est
+
+build state/artisan_profit : compute state/artisan_consumption_data
+
+
+build state/rgo_demand_zero : compute
+
+build state/rgo_efficiency : compute
+
+build state/rgo_target_employment_start : compute
+
+build state/rgo_demand_scale : compute build state/rgo_efficiency state/rgo_target_employment_start
+
+build state/rgo_demand : compute state/rgo_demand_zero state/rgo_demand_scale
+
+build state/buffer_demanded_artisan_rgo : compute state/rgo_demand state/buffer_demanded_artisan
+build state/buffer_consumed_est_artisan_rgo : compute state/rgo_demand state/buffer_consumed_est_artisan state/actual_probability_to_buy_start
+
+build state/basic_labor_demand_rgo : compute state/rgo_target_employment_start state/basic_labor_demand_zero
+
+build state/rgo_per_worker : compute state/rgo_efficiency
+
+build state/factory_size_start : compute
+build state/factory_target_basic_start : compute
+build state/factory_target_advanced_start : compute
+build state/factory_target_expert_start : compute
+
+
+build state/factory_update : compute state/factory_size_start state/factory_target_basic_start state/factory_target_advanced_start state/factory_target_expert_start state/basic_labor_sat state/basic_labor_sat state/advanced_labor_sat_start state/expert_labor_sat_start
+
+build state/basic_labor_demand_rgo_factory : compute state/basic_labor_demand_rgo state/factory_update
+build state/advanced_labor_demand_factory : compute state/advanced_labor_demand_zero state/factory_update
+build state/expert_labor_demand_factory : compute state/expert_labor_demand_zero state/factory_update
+
+build state/buffer_demanded_artisan_rgo_factory : compute state/factory_update state/buffer_demanded_artisan_rgo
+build state/buffer_consumed_est_artisan_rgo_factory : compute state/factory_update state/buffer_consumed_est_artisan_rgo state/actual_probability_to_buy_start
