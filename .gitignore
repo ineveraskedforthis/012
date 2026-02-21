@@ -1,0 +1,9 @@
+.cache
+.ninja_log
+a.exe
+build.bat
+build.ninja
+compile_commands.json
+dump.txt
+economy.o
+libclang.libclang
