@@ -7,3 +7,4 @@ compile_commands.json
 dump.txt
 economy.o
 libclang.libclang
+economy/graph.txt

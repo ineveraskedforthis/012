@@ -50,7 +50,7 @@ build state/army_demand_regiments : compute state/regiment_list state/army_deman
 build state/construction_demand_zero : compute
 build state/construction_demand_land : compute  state/construction_demand_zero state/nation_treasury_start
 build state/construction_demand_land_naval : compute  state/construction_demand_land state/nation_treasury_start
-build state/construction_demand_land_naval_building_factory : state/construction_demand_land_naval compute state/factory_construction_list_start state/building_construction_list_start state/nation_treasury_start
+build state/construction_demand_land_naval_building_factory : compute state/construction_demand_land_naval compute state/factory_construction_list_start state/building_construction_list_start state/nation_treasury_start
 
 build state/embargo : compute
 build state/free_trade : compute
@@ -94,10 +94,6 @@ build state/port_demand_zero : compute
 build state/life_scale_zero : compute
 build state/everyday_scale_zero : compute
 build state/luxury_scale_zero : compute
-
-build state/buffer_demanded : compute
-build state/buffer_consumed_estimation : compute
-
 
 build state/buffer_demanded : compute
 build state/buffer_consumed_est : compute
@@ -148,3 +144,4 @@ build state/expert_labor_demand_factory : compute state/expert_labor_demand_zero
 
 build state/buffer_demanded_artisan_rgo_factory : compute state/factory_update state/buffer_demanded_artisan_rgo
 build state/buffer_consumed_est_artisan_rgo_factory : compute state/factory_update state/buffer_consumed_est_artisan_rgo state/actual_probability_to_buy_start
+

@@ -5,6 +5,9 @@ static int side_value;
 void function_with_side_effect() {
         random_namespace::side_value++;
 }
+void function_with_side_effect2() {
+        random_namespace::side_value+=1;
+}
 
 namespace cool_functions {
 int test_function_1(int a, int b) {
