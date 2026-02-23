@@ -7,7 +7,6 @@ int super_add(int a, int b) {
         return x;
 }
 
-/*
 namespace random_namespace {
 static int side_value;
 }
@@ -59,7 +58,5 @@ struct state {
 
 void update(sys::state& state1, sys::state& state2) {
         state1.quality1 = state2.quality3 + state2.world.data2[2];
-        // state.world.data3[5] = state.world.data3[4] * state.world.data1[1];
+        state2.world.data3[5] = state2.world.data3[4] * state2.world.data1[1];
 }
-
-*/

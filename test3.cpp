@@ -513,6 +513,52 @@ rw(
 	}
 }
 
+std::string
+ninja_print(
+	parametrised_data_dependency*
+		data_dependency,
+	int&
+		position,
+	std::map<std::string, int>*
+		last_position
+) {
+	int my_position = position;
+	position++;
+	std::vector<std::string> inputs;
+	for (auto item : data_dependency->parameters_and_latent_parameters) {
+		inputs.push_back(ninja_print(item, position, last_position));
+	}
+
+	std::string link;
+	for (auto& step : data_dependency->path) {
+		std::string replaced = step;
+		for (int i = 0; i < step.length(); i++) {
+			if (replaced[i] == ':' || replaced[i] == '$') {
+				replaced[i] = '@';
+			}
+		}
+		link += replaced + "_";
+	}
+
+	auto last = last_position->find(link);
+	if (last != last_position->end()) {
+		std::string additional_input = "stage_" + link + "_" + std::to_string(last->second);
+		inputs.push_back(additional_input);
+	}
+
+	last_position->insert_or_assign(link, my_position);
+
+	std::cout << "build stage_" << link << "_" << my_position << " : compute ";
+
+	for (auto item : inputs) {
+		std::cout << item << " ";
+	}
+
+	std::cout << "\n";
+
+	return  "stage_" + link + "_" + std::to_string(my_position);
+}
+
 void pretty_print_data_dependency(std::string indent, parametrised_data_dependency* data_dependency) {
 	std::cout << indent << "\n";
 	if (data_dependency->is_delayed_function_call) {
@@ -640,16 +686,20 @@ int main(){
 
 	std::cout << "DEPENDENCIES:\n";
 
-	pretty_print_data_dependency("", cs.data_dependency);
+	// pretty_print_data_dependency("", cs.data_dependency);
 
 	// pretty_print_all(clang_getTranslationUnitCursor(unit), "");
 
 	bool can_be_rewritten = true;
 
-	for (int i = 0; i < 5 && can_be_rewritten; i++)  {
+	for (int i = 0; i < 100 && can_be_rewritten; i++)  {
 		std::cout << "REWRITE\n";
 		can_be_rewritten = false;
 		rw(cs.data_dependency, nullptr, can_be_rewritten);
-		pretty_print_data_dependency("", cs.data_dependency);
+		// pretty_print_data_dependency("", cs.data_dependency);
 	}
+
+	std::map<std::string, int> temp;
+	int pos = 1;
+	ninja_print(cs.data_dependency, pos, &temp);
 }

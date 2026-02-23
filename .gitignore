@@ -9,3 +9,5 @@ economy.o
 libclang.libclang
 economy/graph.txt
 result.txt
+image.txt
+test3/image.txt
