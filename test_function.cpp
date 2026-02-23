@@ -9,10 +9,20 @@ void function_with_side_effect2() {
         random_namespace::side_value+=1;
 }
 
+int add(int a, int b) {
+        return a + b;
+}
+
 namespace cool_functions {
 int test_function_1(int a, int b) {
         int c = a + b;
         random_namespace::side_value = a - b;
+        function_with_side_effect();
+        return c;
+}
+int test_function_2(int a, int b) {
+        int c = add(a, b);
+        random_namespace::side_value = add(a ,-b);
         function_with_side_effect();
         return c;
 }
@@ -39,7 +49,7 @@ struct state {
 };
 }
 
-void update(sys::state& state) {
-        state.quality1 = state.quality3 + state.world.data2[2];
-        state.world.data3[5] = state.world.data3[4] * state.world.data1[1];
+void update(sys::state& state1, sys::state& state2) {
+        state1.quality1 = state2.quality3 + state2.world.data2[2];
+        // state.world.data3[5] = state.world.data3[4] * state.world.data1[1];
 }
