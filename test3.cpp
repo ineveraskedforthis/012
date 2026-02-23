@@ -383,6 +383,9 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 				if (parent_cursor_data->not_input > 0) {
 					parent_cursor_data->not_input--;
 					skip_input = false;
+					parent_cursor_data->data_dependency->dependency.push_back(
+						{-1, (int64_t)empty_index}
+					);
 				}
 
 				bool mutates = true;
@@ -433,6 +436,81 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 	handle_generic_cursor_children(cursor, current_scope);
 
 	return CXChildVisit_Recurse;
+}
+
+parametrised_data_dependency* deep_copy(parametrised_data_dependency* data, std::map<std::string, std::string>& replace_table) {
+	auto result = new parametrised_data_dependency;
+	result->dependency = data->dependency;
+	result->is_delayed_function_call = data->is_delayed_function_call;
+	result->is_latent = data->is_latent;
+	result->is_reference = data->is_reference;
+	result->path = data->path;
+	result->parameters_count = result->parameters_count;
+	for (int i = 0; i < result->path.size(); i++) {
+		auto it_replace = replace_table.find(result->path[i]);
+		if (it_replace == replace_table.end()) continue;
+		result->path[i] = it_replace->second;
+	}
+	for (auto item : data->parameters_and_latent_parameters) {
+		result->parameters_and_latent_parameters.push_back(deep_copy(item, replace_table));
+	}
+	return result;
+}
+
+void
+rw(
+	parametrised_data_dependency*
+		current,
+	std::map<std::string, parametrised_data_dependency*>*
+		lookup_table,
+	bool& rewrite_exists
+) {
+	bool created_lookup = false;
+	if (lookup_table == nullptr) {
+		created_lookup = true;
+		lookup_table = new std::map<std::string, parametrised_data_dependency*>;
+		for (auto item : current->parameters_and_latent_parameters) {
+			lookup_table->insert_or_assign(item->path.back(), item);
+		}
+	}
+
+	for (auto item : current->parameters_and_latent_parameters){
+		rw(item, lookup_table, rewrite_exists);
+	}
+
+	if (current->is_delayed_function_call) {
+		auto function = lookup_table->find(current->path[0]);
+		if (function != lookup_table->end()) {
+			// remove function reference
+			current->parameters_and_latent_parameters.erase(
+				current->parameters_and_latent_parameters.begin(),
+				current->parameters_and_latent_parameters.begin() + 1
+			);
+			rewrite_exists = true;
+			std::map<std::string, std::string> replace_table;
+			for (int param = 0; param < function->second->parameters_count; param++) {
+				replace_table.insert_or_assign(
+					function->second->parameters_and_latent_parameters[param]->path.back(),
+					current->parameters_and_latent_parameters[param]->path.back()
+				);
+			}
+			for (
+				int next = function->second->parameters_count;
+				next < function->second->parameters_and_latent_parameters.size();
+				next++
+			) {
+				current->parameters_and_latent_parameters.push_back(deep_copy(
+					function->second->parameters_and_latent_parameters[next], replace_table
+				));
+			}
+			current->dependency = function->second->dependency;
+			current->is_delayed_function_call = false;
+		}
+	}
+
+	if (created_lookup) {
+		delete lookup_table;
+	}
 }
 
 void pretty_print_data_dependency(std::string indent, parametrised_data_dependency* data_dependency) {
@@ -524,6 +602,7 @@ int main(){
 	cs.data_dependency->path.push_back({});
 	handle_generic_cursor(cursor, &cs);
 
+	/*
 	std::cout << "FILE END\n";
 
 	for (auto dependent = 0; dependent < cs.data_dependency->parameters_and_latent_parameters.size(); dependent++) {
@@ -557,11 +636,20 @@ int main(){
 		std::cout << "\n";
 	}
 	std::cout << "\n\n";
-
+	*/
 
 	std::cout << "DEPENDENCIES:\n";
 
 	pretty_print_data_dependency("", cs.data_dependency);
 
-	pretty_print_all(clang_getTranslationUnitCursor(unit), "");
+	// pretty_print_all(clang_getTranslationUnitCursor(unit), "");
+
+	bool can_be_rewritten = true;
+
+	for (int i = 0; i < 5 && can_be_rewritten; i++)  {
+		std::cout << "REWRITE\n";
+		can_be_rewritten = false;
+		rw(cs.data_dependency, nullptr, can_be_rewritten);
+		pretty_print_data_dependency("", cs.data_dependency);
+	}
 }

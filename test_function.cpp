@@ -1,3 +1,13 @@
+int add(int a, int b) {
+        return a + b;
+}
+
+int super_add(int a, int b) {
+        int x = add(a, b);
+        return x;
+}
+
+/*
 namespace random_namespace {
 static int side_value;
 }
@@ -9,9 +19,7 @@ void function_with_side_effect2() {
         random_namespace::side_value+=1;
 }
 
-int add(int a, int b) {
-        return a + b;
-}
+
 
 namespace cool_functions {
 int test_function_1(int a, int b) {
@@ -53,3 +61,5 @@ void update(sys::state& state1, sys::state& state2) {
         state1.quality1 = state2.quality3 + state2.world.data2[2];
         // state.world.data3[5] = state.world.data3[4] * state.world.data1[1];
 }
+
+*/
