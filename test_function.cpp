@@ -1,3 +1,4 @@
+/*
 int add(int a, int b) {
         return a + b;
 }
@@ -56,7 +57,63 @@ struct state {
 };
 }
 
+template<typename F>
+void apply_x(sys::state& state, F f) {
+        state.quality1 = f(state.quality1);
+}
+
 void update(sys::state& state1, sys::state& state2) {
         state1.quality1 = state2.quality3 + state2.world.data2[2];
         state2.world.data3[5] = state2.world.data3[4] * state2.world.data1[1];
+        if (state1.quality1 > 5) {
+                state1.quality1 = state1.quality1 + 2;
+        }
+
+        for (auto i = 5; i < 10; i++) {
+                state1.quality2 += state2.quality2;
+        }
+
+        apply_x(state1, [&](auto x) {return x + 1;});
+}
+
+template<typename G, typename F>
+int apply(G g, F f) {
+        return f(g);
+}
+
+int test() {
+        return apply(1, [&](auto x){return x + 1;});
+}
+*/
+/*
+template<typename T>
+struct stupid_struct{
+        T data;
+        T get_data(){
+                return data;
+        }
+};
+
+
+
+int test_struct() {
+        stupid_struct<float> x = {5};
+        x.data = 10;
+        return x.get_data();
+}
+*/
+
+struct smart_struct{
+        int data;
+        int get_data(){
+                return data;
+        }
+};
+
+int test_struct2() {
+        smart_struct x = {5};
+        if (x.data == 6) {
+                x.data = 10;
+        }
+        return x.get_data();
 }

@@ -11,3 +11,7 @@ economy/graph.txt
 result.txt
 image.txt
 test3/image.txt
+image.svg
+.vscode*
+a.ilk
+a.pdb
