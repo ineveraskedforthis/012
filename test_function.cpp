@@ -1,4 +1,29 @@
+struct big_object {
+        int x;
+        void inc() {
+                x++;
+        }
+};
+
+void test_big_object(big_object& state) {
+        state.inc();
+        state.inc();
+        state.inc();
+        state.inc();
+        state.inc();
+}
+
 /*
+template<typename G, typename F>
+int apply(G g, F f) {
+        return f(g);
+}
+
+int test() {
+        auto f= [&](auto x){return x + 1;};
+        return apply(1, f) + apply(2, [&](auto x){return x * x;});
+}
+
 int add(int a, int b) {
         return a + b;
 }
@@ -26,6 +51,9 @@ int test_function_1(int a, int b) {
         int c = a + b;
         random_namespace::side_value = a - b;
         function_with_side_effect();
+        function_with_side_effect() ;
+        function_with_side_effect() ;
+        function_with_side_effect() ;
         return c;
 }
 int test_function_2(int a, int b) {
@@ -76,20 +104,13 @@ void update(sys::state& state1, sys::state& state2) {
         apply_x(state1, [&](auto x) {return x + 1;});
 }
 
-template<typename G, typename F>
-int apply(G g, F f) {
-        return f(g);
-}
 
-int test() {
-        return apply(1, [&](auto x){return x + 1;});
-}
-*/
-/*
 template<typename T>
 struct stupid_struct{
         T data;
+        int counter;
         T get_data(){
+                this->counter++;
                 return data;
         }
 };
@@ -101,12 +122,18 @@ int test_struct() {
         x.data = 10;
         return x.get_data();
 }
-*/
 
 struct smart_struct{
         int data;
+        int counter;
         int get_data(){
+                this->counter = this->counter + 1;
                 return data;
+        }
+        int super_function(int a, int b) {
+                data ++;
+                counter += a + b;
+                return  a + data;
         }
 };
 
@@ -115,5 +142,27 @@ int test_struct2() {
         if (x.data == 6) {
                 x.data = 10;
         }
-        return x.get_data();
+
+        return x.get_data() + x.super_function(x.data, 20);
 }
+
+void test10(){
+        int x = 1;
+        int y = 2;
+        int z = add(x, y);
+        int* alpha = &x;
+        *alpha = z + 5;
+}
+
+void test11(){
+        int x = 1;
+        int y = 2;
+        int z = add(x, y);
+        int& alpha = x;
+        x += 10;
+        x += 20;
+        x += 40;
+        alpha = add(z, 5);
+}
+
+*/

@@ -37,6 +37,19 @@ struct parametrised_data_dependency {
 	std::vector<link> dependency;
 };
 
+struct point {
+	unsigned int hash;
+	unsigned int text_key;
+	unsigned int line;
+	unsigned int parameters_count;
+	std::vector<unsigned int> depends_on;
+};
+
+struct code {
+	std::vector<point> points;
+	std::vector<std::string> text_keys {};
+};
+
 struct cursor_data {
 	parametrised_data_dependency* data_dependency;
 	int not_input = 0;
@@ -78,6 +91,11 @@ void pretty_print(CXCursor cursor, std::string indent) {
 		<< " CursorKind: " << clang_getCString(cursor_kind_spelling)
 		<< " TypeKind: " << cursor_type.kind << " " << clang_getCString(kind_spelling)
 		<< "\n";
+	{
+		CXString pretty = clang_getCursorUSR (cursor);
+		std::cout << indent << "USR " << clang_getCString(pretty) << "\n";
+		clang_disposeString(pretty);
+	}
 	clang_disposeString(cursor_spelling);
 	clang_disposeString(kind_spelling);
 	clang_disposeString(cursor_kind_spelling);
@@ -137,7 +155,7 @@ void pretty_print_all(CXCursor cursor, std::string indent) {
 			CXCursor parent,
 			CXClientData client_data
 		){
-			// pretty_print_all(current_cursor, *(std::string*)client_data);
+			pretty_print_all(current_cursor, *(std::string*)client_data);
 			return CXChildVisit_Continue;
 		},
 		&new_indent
@@ -179,6 +197,8 @@ std::string sanitize_usr(std::string input_usr) {
 		}
 		result += input_usr[i];
 	}
+
+	if (input_usr != "") assert(result != "");
 
 	return result;
 }
@@ -343,6 +363,13 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		return CXChildVisit_Break;
 	}
 
+	if (
+		cursor_kind == CXCursor_OverloadedDeclRef
+		|| cursor_kind == CXCursor_ConceptSpecializationExpr
+	) {
+		return CXChildVisit_Break;
+	}
+
 	if (cursor_kind == CXCursor_DeclRefExpr) {
 		// handle_generic_cursor_children(cursor, current_scope);
 		auto original_template = clang_getSpecializedCursorTemplate(clang_getCursorReferenced(cursor));
@@ -352,6 +379,11 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 			usr = sanitize_usr(clang_getCString(pretty));
 			// std::cout << "Actually References(sanitized): " << usr << "\n";
 			clang_disposeString(pretty);
+		}
+		// assert(usr != "");
+
+		if (usr == "") {
+			usr = "NEW_"+ std::to_string(clang_hashCursor(cursor));
 		}
 		current_scope->data_dependency->path.push_back(usr);
 		return CXChildVisit_Break;
@@ -393,7 +425,39 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		return CXChildVisit_Break;
 	}
 
+	if (cursor_kind == CXCursor_BuiltinBitCastExpr) {
+		handle_generic_cursor_children(cursor, current_scope);
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind ==CXCursor_CXXDynamicCastExpr) {
+		handle_generic_cursor_children(cursor, current_scope);
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXReinterpretCastExpr) {
+		handle_generic_cursor_children(cursor, current_scope);
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXFunctionalCastExpr) {
+		handle_generic_cursor_children(cursor, current_scope);
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_RequiresExpr) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_BreakStmt) {
+		return CXChildVisit_Break;
+	}
+
 	if (cursor_kind == CXCursor_FriendDecl) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXThrowExpr) {
 		return CXChildVisit_Break;
 	}
 
@@ -413,15 +477,14 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		return CXChildVisit_Break;
 	}
 
-	if (cursor_kind == CXCursor_CXXThisExpr) {
-		current_scope->data_dependency->path.push_back("THIS");
+
+
+
+	if (cursor_kind == CXCursor_NullStmt) {
 		return CXChildVisit_Break;
 	}
 
-	if (cursor_kind == CXCursor_NullStmt) {
-		current_scope->data_dependency->path.push_back("NULL");
-		return CXChildVisit_Break;
-	}
+
 
 	if (cursor_kind == CXCursor_VarDecl) {
 		cursor_data declared {};
@@ -457,6 +520,11 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		|| cursor_kind == CXCursor_StructDecl
 		|| cursor_kind == CXCursor_InitListExpr
 		|| cursor_kind == CXCursor_DoStmt
+		|| cursor_kind == CXCursor_WhileStmt
+		|| cursor_kind == CXCursor_NamespaceRef
+		|| cursor_kind == CXCursor_NamespaceAlias
+		|| cursor_kind == CXCursor_CXXTryStmt
+		|| cursor_kind == CXCursor_CXXCatchStmt
 	) {
 		handle_generic_cursor_children(cursor, current_scope);
 		return CXChildVisit_Break;
@@ -466,11 +534,52 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		return CXChildVisit_Break;
 	}
 
+	if (cursor_kind == CXCursor_UnexposedStmt) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXDeleteExpr) {
+		return CXChildVisit_Break;
+	}
+
 	if (cursor_kind == CXCursor_TemplateRef) {
 		return CXChildVisit_Break;
 	}
 
 	if (cursor_kind == CXCursor_TemplateTemplateParameter) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXThisExpr) {
+		current_scope->data_dependency->path.push_back("THIS");
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXNewExpr) {
+		current_scope->data_dependency->path.push_back("NEW_"+ std::to_string(clang_hashCursor(cursor)));
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXNullPtrLiteralExpr) {
+		current_scope->data_dependency->path.push_back("NULL_"+ std::to_string(clang_hashCursor(cursor)));
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_SizeOfPackExpr) {
+		current_scope->data_dependency->path.push_back("SIZEOF_"+ std::to_string(clang_hashCursor(cursor)));
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_VariableRef) {
+		return CXChildVisit_Break;
+	}
+
+
+	if (cursor_kind == CXCursor_ContinueStmt) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CXXTypeidExpr) {
 		return CXChildVisit_Break;
 	}
 
@@ -496,7 +605,12 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 	}
 
 	if (cursor_kind == CXCursor_StringLiteral) {
-		current_scope->data_dependency->path.push_back("String Literal_" + std::to_string(clang_hashCursor(cursor)));
+		current_scope->data_dependency->path.push_back("String_Literal_" + std::to_string(clang_hashCursor(cursor)));
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_CharacterLiteral) {
+		current_scope->data_dependency->path.push_back("Character_Literal_" + std::to_string(clang_hashCursor(cursor)));
 		return CXChildVisit_Break;
 	}
 
@@ -532,6 +646,10 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 	}
 
 	if (cursor_kind == CXCursor_EnumDecl || cursor_kind == CXCursor_EnumConstantDecl) {
+		return CXChildVisit_Break;
+	}
+
+	if (cursor_kind == CXCursor_MemberRef) {
 		return CXChildVisit_Break;
 	}
 
@@ -596,6 +714,9 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 					handle_generic_cursor(current_cursor, &child_data);
 				}
 
+				if (child_data.data_dependency->path.back() == "") {
+					child_data.data_dependency->path.push_back("Nameless_call_parameter_" + std::to_string(clang_hashCursor(current_cursor)));
+				}
 				parent_cursor_data->data_dependency->parameters_and_latent_parameters.push_back(child_data.data_dependency);
 				return CXChildVisit_Continue;
 			},
@@ -713,6 +834,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 		|| cursor_kind == CXCursor_CompoundAssignOperator
 		|| cursor_kind == CXCursor_IfStmt
 		|| cursor_kind == CXCursor_ForStmt
+		|| cursor_kind == CXCursor_CXXForRangeStmt
 		|| cursor_kind == CXCursor_SwitchStmt
 		|| cursor_kind == CXCursor_ConditionalOperator
 	) {
@@ -803,7 +925,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, cursor_data* current_s
 	}
 
 	// std::cout << "end: " << usr << "\n";
-	// pretty_print(cursor, "\t\t");
+	pretty_print(cursor, "\t\t");
 	std::cout << "UNRESOLVED CASE\nInputs:";
 
 	// assert(false);
@@ -899,37 +1021,54 @@ rw(
 		rw(item, lookup_table, rewrite_exists, position);
 	}
 
-	if (current->is_delayed_function_call && !current->is_projection && current->path.size() > 0 && !current->path.back().empty()) {
+	if (
+		current->is_delayed_function_call
+		&& !current->is_projection
+		&& current->path.size() > 0
+		&& !current->path.back().empty()
+	) {
 		auto function = lookup_table->find(current->path.back());
 		if (function != lookup_table->end()) {
 			// remove function reference
-			if (!current->function_is_not_a_param) {
-				current->parameters_and_latent_parameters.erase(
-					current->parameters_and_latent_parameters.begin(),
-					current->parameters_and_latent_parameters.begin() + 1
-				);
-			}
-			current->path.clear();
-			rewrite_exists = true;
-			std::map<std::string, std::string> replace_table;
-			for (int param = 0; param < function->second->parameters_count; param++) {
-				replace_table.insert_or_assign(
-					function->second->parameters_and_latent_parameters[param]->path.back(),
-					current->parameters_and_latent_parameters[param]->path.back()
-				);
-				std::cout << "REPLACE " << function->second->parameters_and_latent_parameters[param]->path.back() << " WITH " << current->parameters_and_latent_parameters[param]->path.back() << "\n";
-			}
-			for (
-				int next = function->second->parameters_count;
-				next < function->second->parameters_and_latent_parameters.size();
-				next++
+			if (
+				(
+					current->function_is_not_a_param
+					&&
+					function->second->parameters_count <= current->parameters_and_latent_parameters.size()
+				) || (
+					!current->function_is_not_a_param
+					&&
+					function->second->parameters_count + 1 <= current->parameters_and_latent_parameters.size()
+				)
 			) {
-				current->parameters_and_latent_parameters.push_back(deep_copy(
-					function->second->parameters_and_latent_parameters[next], replace_table
-				));
+				if (!current->function_is_not_a_param) {
+					current->parameters_and_latent_parameters.erase(
+						current->parameters_and_latent_parameters.begin(),
+						current->parameters_and_latent_parameters.begin() + 1
+					);
+				}
+				current->path.clear();
+				rewrite_exists = true;
+				std::map<std::string, std::string> replace_table;
+				for (int param = 0; param < function->second->parameters_count; param++) {
+					replace_table.insert_or_assign(
+						function->second->parameters_and_latent_parameters[param]->path.back(),
+						current->parameters_and_latent_parameters[param]->path.back()
+					);
+					std::cout << "REPLACE " << function->second->parameters_and_latent_parameters[param]->path.back() << " WITH " << current->parameters_and_latent_parameters[param]->path.back() << "\n";
+				}
+				for (
+					int next = function->second->parameters_count;
+					next < function->second->parameters_and_latent_parameters.size();
+					next++
+				) {
+					current->parameters_and_latent_parameters.push_back(deep_copy(
+						function->second->parameters_and_latent_parameters[next], replace_table
+					));
+				}
+				current->dependency = function->second->dependency;
+				current->is_delayed_function_call = false;
 			}
-			current->dependency = function->second->dependency;
-			current->is_delayed_function_call = false;
 		}
 	}
 
@@ -1137,8 +1276,8 @@ int main(){
 
 	clang_parseTranslationUnit2FullArgv(
 		index,
-		// "test_function.cpp",
-		"C:/_projects/cpp/alice/src/economy/economy.cpp",
+		"test_function.cpp",
+		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
 		flags.data(), flags.size(),
 		// flags2.data(), flags2.size(),
 		nullptr, 0,
@@ -1211,7 +1350,7 @@ int main(){
 
 	bool can_be_rewritten = true;
 
-	for (int i = 0; i < 100 && can_be_rewritten; i++)  {
+	for (int i = 0; i < 10 && can_be_rewritten; i++)  {
 		std::cout << "REWRITE\n";
 		can_be_rewritten = false;
 		int pos = 1;
@@ -1219,7 +1358,7 @@ int main(){
 		// pretty_print_data_dependency("", cs.data_dependency);
 	}
 
-	simp(cs.data_dependency, nullptr);
+	// simp(cs.data_dependency, nullptr);
 	// pretty_print_data_dependency("", cs.data_dependency);
 
 	std::map<std::string, std::string> temp;

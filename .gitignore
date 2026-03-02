@@ -1,6 +1,5 @@
 .cache
 .ninja_log
-a.exe
 build.bat
 build.ninja
 compile_commands.json
@@ -15,3 +14,14 @@ image.svg
 .vscode*
 a.ilk
 a.pdb
+a.exe
+b.ilk
+b.pdb
+b.exe
+code.txt
+code2.txt
+.code.txt.swp
+image-eco.svg
+test4-image*
+test4-utf8.txt
+test4.txt
