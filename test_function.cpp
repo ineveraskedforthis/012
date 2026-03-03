@@ -1,8 +1,44 @@
+struct small_field {
+        int* data;
+        int* values() {
+                return data;
+        }
+};
+struct small_container {
+        small_field data_row;
+        int get_data(int i) {
+                return data_row.values()[i];
+        }
+        void change_data(int i, int k) {
+                data_row.values()[i] = k;
+        }
+};
+
+void small_test (small_container& container) {
+        container.change_data(10, container.get_data(40));
+        container.change_data(10, container.get_data(40));
+        container.change_data(10, container.get_data(40));
+}
+
+struct field {
+        int* data;
+        int* values() {
+                return data;
+        }
+};
 
 struct container {
-        int* data1;
+        field data1;
         float* data2;
         unsigned int* data3;
+
+        int get_data1(int i) {
+                return data1.values()[i];
+        }
+
+        void change_data1(int i, int k) {
+                data1.values()[i] = k;
+        }
 };
 
 namespace sys {
@@ -14,6 +50,11 @@ struct state {
 };
 }
 
+int test_pointer(sys::state& state) {
+        auto x  = state.world.get_data1(10);
+        state.world.change_data1(10, x + 5);
+        return x + 1;
+}
 template<typename F>
 void apply_x(sys::state& state, F f) {
         state.quality1 = f(state.quality1);
@@ -21,7 +62,7 @@ void apply_x(sys::state& state, F f) {
 
 void update(sys::state& state1, sys::state& state2) {
         state1.quality1 = state2.quality3 + state2.world.data2[2];
-        state2.world.data3[5] = state2.world.data3[4] * state2.world.data1[1];
+        state2.world.data3[5] = state2.world.data3[4] * state2.world.get_data1(1);
         if (state1.quality1 > 5) {
                 state1.quality1 = state1.quality1 + 2;
         }

@@ -861,6 +861,20 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 	}
 
 	if (cursor_kind == CXCursor_ArraySubscriptExpr) {
+		auto original_template = clang_getSpecializedCursorTemplate(clang_getCursorReferenced(cursor));
+		if (!clang_Cursor_isNull(original_template)) {
+			CXString pretty = clang_getCursorUSR (clang_getCursorReferenced(original_template));
+			usr = sanitize_usr(clang_getCString(pretty));
+			clang_disposeString(pretty);
+		}
+		// array call has projections to values
+		point member_projection {};
+		member_projection.hash = hash;
+		member_projection.name = "Subscript";
+		member_projection.display_name = "Subscript";
+		member_projection.is_projection = true;
+		current_scope->call_stack.push_back(member_projection);
+
 		clang_visitChildren(
 			cursor,
 			[](
@@ -869,14 +883,42 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 				CXClientData client_data
 			){
 				auto scope = (code*) client_data;
-				CXType cursor_type = clang_getCursorType(current_cursor);
-				if (cursor_type.kind == CXType_Pointer) {
+				auto current_type = clang_getCursorType(current_cursor);
+				if (current_type.kind != CXType_Pointer) {
 					handle_generic_cursor(current_cursor, (code*)client_data);
+					auto& call = scope->call_stack.back();
+					call.dependency.push_back(scope->points.size() - 1);
 				}
 				return CXChildVisit_Continue;
 			},
 			current_scope
 		);
+
+		clang_visitChildren(
+			cursor,
+			[](
+				CXCursor current_cursor,
+				CXCursor parent,
+				CXClientData client_data
+			){
+				auto scope = (code*) client_data;
+				auto current_type = clang_getCursorType(current_cursor);
+				if (current_type.kind == CXType_Pointer) {
+					handle_generic_cursor(current_cursor, (code*)client_data);
+					auto& call = scope->call_stack.back();
+					call.computation.push_back(scope->points.size() - 1);
+				}
+				return CXChildVisit_Continue;
+			},
+			current_scope
+		);
+
+		auto& updated_call = current_scope->call_stack.back();
+		auto scope = current_scope->flow_stack.back();
+		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
+		current_scope->points.push_back(updated_call);
+		current_scope->call_stack.pop_back();
+
 		return CXChildVisit_Break;
 	}
 
@@ -1129,6 +1171,12 @@ std::string get_final_name (point& item) {
 		+(item.mutated ? "_MUTATED" : "");
 };
 
+std::string get_final_name_ignore_mutation(point& item) {
+	return ninja_name(item.name)
+		+ "_"
+		+ std::to_string(item.hash);
+};
+
 static std::map<std::string, int> simplifier;
 static std::map<std::string, std::string> last_node;
 
@@ -1136,58 +1184,143 @@ static std::map<std::string, std::string> last_node;
 static int available_int = 0;
 static int unique_prefix = 0;
 
-std::string unique_form (code& code_db, std::map<std::string, std::string>& result, point& item, bool left_part, std::string prefix) {
+std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::map<std::string, int> sub, int this_replacement) {
+	std::vector<int> result;
+	bool keep_trying = true;
+	while (keep_trying) {
+		if (index_to_resolve == -1) {
+			break;
+		}
+
+		if (code_db.points[index_to_resolve].is_this && this_replacement >= 0) {
+			// FINALLY!
+			result.push_back(this_replacement);
+			break;;
+		} else if (code_db.points[index_to_resolve].is_this) {
+			result.push_back(index_to_resolve);
+			break;;
+		}
+
+		auto& to_resolve = code_db.points[index_to_resolve];
+
+		if (sub.find(to_resolve.name) != sub.end()) {
+			index_to_resolve = sub[to_resolve.name];
+			continue;
+		}
+
+		if (to_resolve.is_projection && to_resolve.computation.size() > 0) {
+			result.push_back(index_to_resolve);
+			index_to_resolve = to_resolve.computation[0];
+			continue;
+		} else if (to_resolve.is_projection) {
+			result.push_back(-1);
+			break;
+		}
+
+		if (to_resolve.is_reference) {
+			index_to_resolve = to_resolve.reference_to;
+			continue;
+		}
+
+		if (to_resolve.is_pointer) {
+			// IT IS HOPELESS...
+			// but
+			result.push_back(index_to_resolve);
+			result.push_back(this_replacement);
+			break;
+		}
+
+		if (to_resolve.is_function_call) {
+			// try to resolve simple functions
+			// otherwise consider hopeless
+
+			auto flow_name = to_resolve.associated_flow_name;
+
+			if (flow_name == "") {
+				result.push_back(index_to_resolve);
+				break;
+			}
+
+			//  look for function
+			bool found = false;;
+			for (int i = 0; i < code_db.flows.size(); i++) {
+				if (flow_name == code_db.flows[i].name) {
+					index_to_resolve = code_db.flows[i].return_value;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				result.push_back(-1);
+				break;
+			} else {
+				continue;
+			}
+		}
+
+		if (to_resolve.dependency.size() > 0) {
+			// try your luck!
+			index_to_resolve = to_resolve.dependency[0];
+			continue;
+		}
+
+		break;
+	}
+	return result;
+}
+
+std::string unique_form (code& code_db, std::map<std::string, std::string>& result, point& item, bool left_part, std::string prefix, std::map<std::string, int>& replace, int this_replacement, bool ignore_mutation) {
 	std::string final_string = get_final_name(item);
+	if (ignore_mutation) {
+		final_string = get_final_name_ignore_mutation(item);
+	}
 	std::string result_string;
 	result_string = final_string;
 	if (item.computation.size() > 0) {
 		result_string += "_COMPUTED_WITH_";
-		for (auto part_index : item.computation) {
-			auto part = code_db.points[part_index];
-			result_string += ninja_name(part.name) +  "_" + std::to_string(part.hash);
+		for (auto index : item.computation) {
+
+			auto actual_index = index;
+			if (code_db.points[actual_index].is_projection || code_db.points[actual_index].is_function_call) {
+				auto resolution = resolve_projection(code_db, actual_index, replace, this_replacement);
+				if (resolution.size() >0 && resolution.back() != -1) {
+					actual_index = resolution.back();
+				}
+			}
+			auto& part = code_db.points[actual_index];
+
+			if (part.is_this && this_replacement > -1) {
+				auto& actual_part = code_db.points[this_replacement];
+				result_string += ninja_name(actual_part.name); //+  "_" + std::to_string(actual_part.hash);
+				continue;
+			}
+			if (replace.find(part.name) != replace.end()) {
+				auto& actual_part = code_db.points[replace[part.name]];
+				result_string += ninja_name(actual_part.name); //+  "_" + std::to_string(actual_part.hash);
+				continue;
+			}
+			result_string += ninja_name(part.name); //+  "_" + std::to_string(part.hash);
 		}
 	}
 	return prefix + "i" + result_string;
 }
 
-std::string print_point (code& code_db, std::map<std::string, std::string>& result, point& item, bool left_part, std::string prefix) {
-	std::string final_string = get_final_name(item);
-	std::string result_string;
-	result_string = final_string;
-	if (item.computation.size() > 0) {
-		result_string += "_COMPUTED_WITH_";
-		for (auto part_index : item.computation) {
-			auto part = code_db.points[part_index];
-			result_string += ninja_name(part.name) +  "_" + std::to_string(part.hash);
-		}
-	}
-	if (left_part)
-		result[item.name] = prefix + "i" + result_string;
-
-	std::cout << prefix << "i" << result_string;
-
-	/*
-	auto it = simplifier.find(result_string);
-	if (it == simplifier.end()) {
-		simplifier[result_string] = available_int;
-		available_int++;
-		std::cout << prefix << "i" << available_int;
-	} else {
-		std::cout << prefix << "i"  << it->second;
-	}
-	*/
-	// std::cout << result_string;
-	return prefix + "i" + result_string;
+std::string print_point (code& code_db, std::map<std::string, std::string>& result, point& item, bool left_part, std::string prefix, std::map<std::string, int>& replace, int this_replacement) {
+	auto res = unique_form(code_db, result, item, left_part, prefix, replace, this_replacement, false);
+	auto res2 = unique_form(code_db, result, item, left_part, prefix, replace, this_replacement, true);
+	if (left_part) result[res2] = res;
+	std::cout << res;
+	return res;
 };
 
 
 static std::map<std::string, bool> registered_nodes;
-void register_node(code& code_db, std::map<std::string, std::string>& result, point& item, std::string id, std::string prefix) {
+void register_node(code& code_db, std::map<std::string, std::string>& result, point& item, std::string id, std::string prefix, std::map<std::string, int>& replace, int this_replacement) {
 	auto it = registered_nodes.find(id);
 	if (it == registered_nodes.end()) {
 		registered_nodes[id] = true;
 		std::cout << "\"";
-		print_point(code_db, result, item, false, prefix);
+		print_point(code_db, result, item, false, prefix, replace, this_replacement);
 		std::cout << "\"";
 		std::cout << "[ shape = \"record\" label = \"" << item.display_name << "\" ]";
 		std::cout << "\n";
@@ -1206,6 +1339,9 @@ subgraph cluster_0 {
 */
 
 static std::vector<std::pair<std::string, std::string>> delayed_edges;
+
+
+
 
 void print_flow (
 	code& code_db,
@@ -1254,7 +1390,7 @@ void print_flow (
 
 		auto already_used = result.find(item.name);
 		if (side_effect && already_used != result.end()) {
-			// delayed_edges.push_back({already_used->second, unique_form(code_db, result, item, true, prefix_chain[actual_layer])});
+			// delayed_edges.push_back({already_used->second, unique_form(code_db, result, item, true, prefix_chain[actual_layer], substitution, this_replacement, false)});
 			// std::cout << already_used->second << " -> ";
 			// print_point(code_db, result, item, true, prefix_chain[actual_layer]);
 			// std::cout << "\n";
@@ -1264,21 +1400,23 @@ void print_flow (
 		// std::cout << "build ";
 		// print_point(code_db, result, item, true, prefix);
 		// std::cout << " : compute ";
-		for (auto dep_index : item.dependency) {
-			auto& dep = code_db.points[dep_index];
-			auto s1 = print_point(code_db, result, dep, false, prefix_chain[actual_layer]);
-			std::cout << " -> ";
-			auto s2 = print_point(code_db, result, item, true, prefix_chain[actual_layer]);
-			std::cout << "\n";
-			register_node(code_db, result, dep, s1, prefix_chain[actual_layer]);
-			register_node(code_db, result, item, s2, prefix_chain[actual_layer]);
+		if (!item.is_projection) {
+			for (auto dep_index : item.dependency) {
+				auto& dep = code_db.points[dep_index];
+				auto s1 = print_point(code_db, result, dep, false, prefix_chain[actual_layer], substitution, this_replacement);
+				std::cout << " -> ";
+				auto s2 = print_point(code_db, result, item, true, prefix_chain[actual_layer], substitution, this_replacement);
+				std::cout << "\n";
+				register_node(code_db, result, dep, s1, prefix_chain[actual_layer], substitution, this_replacement);
+				register_node(code_db, result, item, s2, prefix_chain[actual_layer], substitution, this_replacement);
+			}
 		}
 
 		if (item.is_param) {
 			std::cout << prefix_chain[actual_layer] << "PC_" << param_index << " -> ";
-			auto s = print_point(code_db, result, item, true, prefix_chain[actual_layer]);
+			auto s = print_point(code_db, result, item, true, prefix_chain[actual_layer], substitution, this_replacement);
 			std::cout << "\n";
-			register_node(code_db, result, item, s, prefix_chain[actual_layer]);
+			register_node(code_db, result, item, s, prefix_chain[actual_layer], substitution, this_replacement);
 			param_index++;
 		}
 
@@ -1359,9 +1497,9 @@ void print_flow (
 				auto returned = code_db.points[returned_index];
 				std::cout << next_prefix << "iRETURN_" << returned.hash;
 				std::cout << " -> ";
-				auto s = print_point(code_db, result, item, true, prefix_chain[actual_layer]);
+				auto s = print_point(code_db, result, item, true, prefix_chain[actual_layer], substitution, this_replacement);
 				std::cout << "\n";
-				register_node(code_db, result, item, s, prefix_chain[actual_layer]);
+				register_node(code_db, result, item, s, prefix_chain[actual_layer], substitution, this_replacement);
 			}
 
 
@@ -1381,12 +1519,12 @@ void print_flow (
 					result,
 					code_db.points[item.computation[p + 1]],
 					false,
-					prefix_chain[actual_layer]
+					prefix_chain[actual_layer], substitution, this_replacement
 				);
 				std::cout << " -> " << next_prefix  << "PC_" << p;
 				std::cout << "\n";
 
-				register_node(code_db, result, code_db.points[item.computation[p + 1]], s, prefix_chain[actual_layer]);
+				register_node(code_db, result, code_db.points[item.computation[p + 1]], s, prefix_chain[actual_layer], substitution, this_replacement);
 			}
 
 			// next_prefix += std::to_string(next_flow.hash);
@@ -1401,15 +1539,17 @@ void print_flow (
 				auto& called = code_db.points[called_index];
 				if (called.is_projection) {
 					if (called.computation.size() >= 0) {
-						replacement = called.computation[0];
+						auto to_replace = code_db.points[called.computation[0]];
+						if (!to_replace.is_this)
+							replacement = called.computation[0];
 					}
 
 					print_flow(code_db, result, next_flow, flow_chain, prefix_chain, next_substitution, replacement);
 				} else {
-					print_flow(code_db, result, next_flow, flow_chain, prefix_chain, next_substitution, -1);
+					print_flow(code_db, result, next_flow, flow_chain, prefix_chain, next_substitution, this_replacement);
 				}
 			} else {
-				print_flow(code_db, result, next_flow, flow_chain, prefix_chain, next_substitution, -1);
+				print_flow(code_db, result, next_flow, flow_chain, prefix_chain, next_substitution, this_replacement);
 			}
 
 
@@ -1419,49 +1559,51 @@ void print_flow (
 			std::cout << "\n";
 
 		} else if (item.is_projection) {
-
-
 			std::cout << "\"";
-			auto node_id = print_point(code_db, result, item, true, prefix_chain[actual_layer]);
+			auto node_id = print_point(code_db, result, item, true, prefix_chain[actual_layer], substitution, this_replacement);
 			std::cout << "\"";
 
 			// auto current = item_index;
 			std::cout << "[ shape = \"record\" label = \"";
 
-			auto current = &item;
-			std::string fat_label = current->name;
-			std::string pretty_label = current->display_name;
+			// auto current = &item;
+			std::string fat_label = item.name;
+			std::string pretty_label = item.display_name;
 			int depth = 0;
-			while(current->is_projection && current->computation.size() > 0) {
-				depth++;
-				assert(depth < 10);
-				auto index = -1;
-				if (code_db.points[current->computation[0]].is_this && this_replacement >= 0) {
-					index = this_replacement;
-					current = &code_db.points[index];
-					pretty_label += " | " + current->display_name;
-					fat_label += "_" + current->name;
+
+			auto resolved = resolve_projection(code_db, raw_index, substitution, this_replacement);
+
+			for (auto i = 1; i < resolved.size(); i++) {
+				auto index = resolved[i];
+				if (index == -1) {
+					pretty_label += " | IMPOSSIBLE";
+					fat_label += "_IMPOSSIBLE";
 					break;
 				}
-
-				index = current->computation[0];
-				current = &code_db.points[index];
-				if (substitution.find(current->name) != substitution.end()) {
-					index = substitution[current->name];
-					current = &code_db.points[index];
-				}
-				pretty_label += " | " + current->display_name;
-				fat_label += "_" + current->name;
+				auto&current = code_db.points[index];
+				pretty_label += " | " + current.display_name;
+				fat_label += "_" + current.name;
 			}
+
 			std::cout << pretty_label <<"\" ];\n";
 
 			auto it = last_node.find(fat_label);
-			if  (it != last_node.end()) {
-				if (item.dependency.size() == 0 && it->second != node_id) {
-					delayed_edges.push_back({it->second, node_id});
-				}
+			if  (it != last_node.end() && !item.mutated) {
+				// if (item.dependency.size() == 0 && it->second != node_id) {
+				delayed_edges.push_back({it->second, node_id});
+				// }
 			}
-			last_node[fat_label] = node_id;
+			if (item.mutated) {
+				last_node[fat_label] = node_id;
+			}
+			registered_nodes[node_id] = true;
+
+			for (auto dep_index : item.dependency) {
+				auto& dep = code_db.points[dep_index];
+				auto s1 = print_point(code_db, result, dep, false, prefix_chain[actual_layer], substitution, this_replacement);
+				std::cout << " -> " << node_id << "\n";
+				register_node(code_db, result, dep, s1, prefix_chain[actual_layer], substitution, this_replacement);
+			}
 		} else {
 			std::cout << "\n";
 		}
@@ -1483,10 +1625,10 @@ int main(){
 
 	clang_parseTranslationUnit2FullArgv(
 		index,
-		// "test_function.cpp",
-		"C:/_projects/cpp/alice/src/economy/economy.cpp",
-		// flags.data(), flags.size(),
-		flags2.data(), flags2.size(),
+		"test_function.cpp",
+		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
+		flags.data(), flags.size(),
+		// flags2.data(), flags2.size(),
 		nullptr, 0,
 		CXTranslationUnit_None,
 		&unit
@@ -1544,7 +1686,7 @@ int main(){
 		std::map<std::string, int> sub;
 
 		// if (flow.name[2] == 'e' && flow.name[3] == 'c' && flow.name[4] == 'o')
-		if (flow.name.find("estimate_reparations_income") != std::string::npos)
+		// if (flow.name.find("estimate_reparations_income") != std::string::npos)
 			print_flow(code_db, result, flow, {0, i}, {"ROOT", ninja_name(flow.name)}, sub, -1);
 		i++;
 	}
