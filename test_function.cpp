@@ -1,25 +1,34 @@
-struct small_field {
-        int* data;
-        int* values() {
-                return data;
+struct index_wrapper {
+        int value;
+        int index() {
+                return value - 1;
         }
 };
+
 struct small_container {
-        small_field data_row;
-        int get_data(int i) {
-                return data_row.values()[i];
+        struct small_wrapper {
+                struct small_field {
+                        int data[640];
+                        // int* data;
+                        auto  values() { return data; }
+                } data;
+        } data_row;
+        int get_data(index_wrapper i) {
+                return data_row.data.values()[i.index()];
         }
-        void change_data(int i, int k) {
-                data_row.values()[i] = k;
+        void change_data(index_wrapper i, int k) {
+                data_row.data.values()[i.index()] = k;
         }
 };
 
 void small_test (small_container& container) {
-        container.change_data(10, container.get_data(40));
-        container.change_data(10, container.get_data(40));
-        container.change_data(10, container.get_data(40));
+        index_wrapper id {40};
+        container.change_data(id, container.get_data(id));
+        container.change_data(id, container.get_data(id));
+        container.change_data(id, container.get_data(id));
 }
 
+/*
 struct field {
         int* data;
         int* values() {
@@ -208,3 +217,5 @@ void test11(){
         x += 40;
         alpha = add(z, 5);
 }
+
+*/

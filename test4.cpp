@@ -425,6 +425,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 
 		if (
 			cursor_type.kind == CXType_Pointer
+			|| cursor_type.kind == CXType_ConstantArray
 		) {
 			core.is_pointer = true;
 		} if (
@@ -884,7 +885,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 			){
 				auto scope = (code*) client_data;
 				auto current_type = clang_getCursorType(current_cursor);
-				if (current_type.kind != CXType_Pointer) {
+				if (current_type.kind != CXType_Pointer  && current_type.kind != CXType_ConstantArray) {
 					handle_generic_cursor(current_cursor, (code*)client_data);
 					auto& call = scope->call_stack.back();
 					call.dependency.push_back(scope->points.size() - 1);
@@ -903,7 +904,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 			){
 				auto scope = (code*) client_data;
 				auto current_type = clang_getCursorType(current_cursor);
-				if (current_type.kind == CXType_Pointer) {
+				if (current_type.kind == CXType_Pointer || current_type.kind == CXType_ConstantArray || current_type.kind == CXType_Auto) {
 					handle_generic_cursor(current_cursor, (code*)client_data);
 					auto& call = scope->call_stack.back();
 					call.computation.push_back(scope->points.size() - 1);
@@ -928,6 +929,10 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 			CXString pretty = clang_getCursorUSR (clang_getCursorReferenced(original_template));
 			usr = sanitize_usr(clang_getCString(pretty));
 			clang_disposeString(pretty);
+		}
+
+		if (usr == "") {
+			return  CXChildVisit_Break;
 		}
 
 		// function call has projections to function and params
