@@ -6,18 +6,18 @@ struct index_wrapper {
 };
 
 struct small_container {
-        struct small_wrapper {
+        struct very_specific_wrapper_type {
                 struct small_field {
                         int data[640];
                         // int* data;
                         auto  values() { return data; }
-                } data;
+                } very_specific_wrapper;
         } data_row;
         int get_data(index_wrapper i) {
-                return data_row.data.values()[i.index()];
+                return data_row.very_specific_wrapper.values()[i.index()];
         }
         void change_data(index_wrapper i, int k) {
-                data_row.data.values()[i.index()] = k;
+                data_row.very_specific_wrapper.values()[i.index()] = k;
         }
 };
 

@@ -11,6 +11,7 @@ result.txt
 image.txt
 test3/image.txt
 image.svg
+image-eco-location.svg
 .vscode*
 a.ilk
 a.pdb
@@ -27,3 +28,5 @@ image-eco-2.svg
 test4-image*
 test4-utf8.txt
 test4.txt
+test4-main.txt
+test4-location.txt

@@ -60,6 +60,8 @@ struct point {
 	// -1 means unknown
 	int defined_in_flow = -1;
 
+	CXSourceLocation location;
+
 	// std::vector<int> projections;
 };
 
@@ -112,9 +114,9 @@ ninja_name(
 			name[i] == ':' || name[i] == '$'
 			|| name[i] == ' ' || name[i] == '|'
 			|| name[i] == '#' || name[i] == '@'
-			|| name[i] == '('
-			|| name[i] == ')'
-			|| name[i] == ' '
+			|| name[i] == '(' || name[i] == '[' || name[i] == '}'
+			|| name[i] == ')' || name[i] == ']' || name[i] == '{'
+			|| name[i] == ' ' || name[i] == ','
 		) {
 			result += "_";
 		}
@@ -140,7 +142,9 @@ ninja_name(
 			result += "amp";
 		} else if (name[i] == '/') {
 			result += "div";
-		} else if (name[i] == '~') {
+		} else if(name[i] == '\\') {
+			result += "bs";
+		}else if (name[i] == '~') {
 			result += "tilde";
 		} else  {
 			result += name[i];
@@ -254,6 +258,9 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 	display_name = mild(display_name);
 	clang_disposeString(display);
 
+	auto loc = clang_getCursorLocation(cursor);
+
+
 	auto hash = clang_hashCursor(cursor);
 
 	if (cursor_kind == CXCursor_StaticAssert) {
@@ -272,6 +279,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		parameter.name = usr;
 		parameter.display_name = display_name;
 		parameter.hash = hash;
+		parameter.location = loc;
 
 		if (cursor_type.kind == CXType_LValueReference) {
 			parameter.is_reference = true;
@@ -305,6 +313,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		associated_point.associated_flow_name = lambda_flow.name;
 		associated_point.hash = lambda_flow.hash;
 		associated_point.display_name = "Lambda";
+		associated_point.location = loc;
 		current_scope->points.push_back(associated_point);
 
 		return CXChildVisit_Break;
@@ -322,12 +331,34 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		cursor_kind == CXCursor_FunctionDecl
 		|| cursor_kind == CXCursor_FunctionTemplate
 	) {
+		// check for definition:
+		bool has_definition = false;
+		clang_visitChildren(
+			cursor,
+			[](
+				CXCursor current_cursor,
+				CXCursor parent,
+				CXClientData client_data
+			){
+				auto kind = clang_getCursorKind(current_cursor);
+				if (kind == CXCursor_CompoundStmt) {
+					 *((bool*)client_data) = true;
+				}
+				return CXChildVisit_Continue;
+			},
+			&has_definition
+		);
+		if (!has_definition) {
+			return CXChildVisit_Break;
+		}
 		// we start making a new flow chart
 		flow lambda_flow {};
 		lambda_flow.hash = clang_hashCursor(cursor);
 		lambda_flow.name = usr;
 		current_scope->flow_stack.push_back(current_scope->flows.size());
 		current_scope->flows.push_back(lambda_flow);
+
+
 		handle_generic_cursor_children(cursor, current_scope);
 		current_scope->flow_stack.pop_back();
 		return CXChildVisit_Break;
@@ -408,6 +439,8 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		}
 
 		point core {};
+
+		core.location = loc;
 
 		if (usr == "") {
 			core.name = "Nameless";
@@ -569,6 +602,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		// now the product in the right side is ready at the last position
 		// prepare the thing
 		point declared {};
+		declared.location = loc;
 		declared.name = usr;
 		declared.display_name = display_name;
 		declared.hash = clang_hashCursor(cursor);
@@ -645,6 +679,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "NEW";
 		new_value.hash = hash;
 		new_value.display_name = "new";
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -657,9 +692,11 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "NULL";
 		new_value.hash = hash;
 		new_value.display_name = "nullptr";
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
+
 
 		return CXChildVisit_Break;
 	}
@@ -669,6 +706,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "SIZE_OF";
 		new_value.display_name = "size of something";
 		new_value.hash = hash;
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -702,6 +740,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 			new_value.display_name = "false";
 		}
 		new_value.hash = hash;
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -717,6 +756,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "LITERALLY_" + std::to_string(data_int);
 		new_value.display_name = std::to_string(data_int);
 		new_value.hash = hash;
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -732,6 +772,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "LITERALLY_" + std::to_string(data_int);
 		new_value.display_name = std::to_string(data_int);
 		new_value.hash = hash;
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -744,6 +785,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "LITERALLY_STRING";
 		new_value.hash = hash;
 		new_value.display_name = "string";
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -756,6 +798,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		new_value.name = "LITERALLY_CHARACTER";
 		new_value.hash = hash;
 		new_value.display_name = "character";
+		new_value.location = loc;
 		auto scope = current_scope->flow_stack.back();
 		current_scope->flows[scope].local_parameters.push_back(current_scope->points.size());
 		current_scope->points.push_back(new_value);
@@ -820,6 +863,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 
 		// function call has projections to function and params
 		point function_call {};
+		function_call.location = loc;
 		function_call.hash = hash;
 		function_call.name = usr;
 		function_call.display_name = display_name;
@@ -870,6 +914,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		}
 		// array call has projections to values
 		point member_projection {};
+		member_projection.location = loc;
 		member_projection.hash = hash;
 		member_projection.name = "Subscript";
 		member_projection.display_name = "Subscript";
@@ -937,6 +982,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 
 		// function call has projections to function and params
 		point member_projection {};
+		member_projection.location = loc;
 		member_projection.hash = hash;
 		member_projection.name = usr;
 		member_projection.display_name = display_name;
@@ -1040,6 +1086,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		handle_generic_cursor_children(cursor, current_scope);
 
 		point unary_node {};
+		unary_node.location = loc;
 		unary_node.hash = hash;
 		unary_node.name = "UNARY";
 		unary_node.dependency.push_back(current_scope->points.size() - 1);
@@ -1100,6 +1147,7 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 		}
 
 		point binary_op {};
+		binary_op.location = loc;
 		binary_op.name = "BINARY";
 		if (cursor_kind == CXCursor_BinaryOperator) {
 			auto str = clang_getBinaryOperatorKindSpelling(binary);
@@ -1169,6 +1217,20 @@ CXChildVisitResult handle_generic_cursor(CXCursor cursor, code* current_scope) {
 	return CXChildVisit_Recurse;
 }
 
+/*
+CXFile f;
+unsigned int line;
+clang_getSpellingLocation(item.location, &f, &line, nullptr, nullptr);
+if (f) {
+	auto s =  clang_getFileName(f );
+	std::string result = clang_getCString(s);
+	clang_disposeString(s);
+	result += ":" + std::to_string(line) + ":" + item.display_name;
+	return ninja_name(result);
+}
+
+*/
+
 std::string get_final_name (point& item) {
 	return ninja_name(item.name)
 		+ "_"
@@ -1192,7 +1254,13 @@ static int unique_prefix = 0;
 std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::map<std::string, int> sub, int this_replacement) {
 	std::vector<int> result;
 	bool keep_trying = true;
+
+	int delayed_target = -1;
 	while (keep_trying) {
+		if (index_to_resolve == -1 && delayed_target != -1) {
+			index_to_resolve = delayed_target;
+			delayed_target = -1;
+		}
 		if (index_to_resolve == -1) {
 			break;
 		}
@@ -1200,10 +1268,12 @@ std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::ma
 		if (code_db.points[index_to_resolve].is_this && this_replacement >= 0) {
 			// FINALLY!
 			result.push_back(this_replacement);
-			break;;
+			index_to_resolve = -1;
+			continue;
 		} else if (code_db.points[index_to_resolve].is_this) {
 			result.push_back(index_to_resolve);
-			break;;
+			index_to_resolve = -1;
+			continue;
 		}
 
 		auto& to_resolve = code_db.points[index_to_resolve];
@@ -1219,7 +1289,8 @@ std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::ma
 			continue;
 		} else if (to_resolve.is_projection) {
 			result.push_back(-1);
-			break;
+			index_to_resolve = -1;
+			continue;
 		}
 
 		if (to_resolve.is_reference) {
@@ -1232,7 +1303,8 @@ std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::ma
 			// but
 			result.push_back(index_to_resolve);
 			result.push_back(this_replacement);
-			break;
+			index_to_resolve = -1;
+			continue;
 		}
 
 		if (to_resolve.is_function_call) {
@@ -1259,6 +1331,7 @@ std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::ma
 				result.push_back(-1);
 				break;
 			} else {
+				delayed_target = to_resolve.computation[0];
 				continue;
 			}
 		}
@@ -1276,6 +1349,7 @@ std::vector<int> resolve_projection(code& code_db, int index_to_resolve, std::ma
 
 std::string unique_form (code& code_db, std::map<std::string, std::string>& result, point& item, bool left_part, std::string prefix, std::map<std::string, int>& replace, int this_replacement, bool ignore_mutation) {
 	std::string final_string = get_final_name(item);
+
 	if (ignore_mutation) {
 		final_string = get_final_name_ignore_mutation(item);
 	}
@@ -1358,9 +1432,9 @@ void print_flow (
 	int this_replacement
 ){
 
-	std::cout << "\nsubgraph cluster_" << prefix_chain.back() << "{\n";
-	std::cout << "style=filled;\ncolor=\"#4040404d\";\nnode [style=filled,color=white];\n";
-	std::cout << "label = " << "\"Flow " << ninja_name(flow.name) << "\"\n";
+	// std::cout << "\nsubgraph cluster_" << prefix_chain.back() << "{\n";
+	// std::cout << "style=filled;\ncolor=\"#4040404d\";\nnode [style=filled,color=white];\n";
+	// std::cout << "label = " << "\"Flow " << ninja_name(flow.name) << "\"\n";
 
 	int param_index = 0;
 
@@ -1614,7 +1688,7 @@ void print_flow (
 		}
 	}
 
-	std::cout << "}\n";
+	// std::cout << "}\n";
 };
 
 int main(){
@@ -1630,10 +1704,11 @@ int main(){
 
 	clang_parseTranslationUnit2FullArgv(
 		index,
-		"test_function.cpp",
+		// "test_function.cpp",
 		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
-		flags.data(), flags.size(),
-		// flags2.data(), flags2.size(),
+		"C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
+		// flags.data(), flags.size(),
+		flags2.data(), flags2.size(),
 		nullptr, 0,
 		CXTranslationUnit_None,
 		&unit
@@ -1676,7 +1751,7 @@ int main(){
 		<< "fontname=\"Helvetica,Arial,sans-serif\""
 		<< "node [fontname=\"Helvetica,Arial,sans-serif\"]"
 		<< "edge [fontname=\"Helvetica,Arial,sans-serif\"]"
-		<< "graph [ rankdir = \"LR\"]";
+		<< "graph [ rankdir = \"LR\"]\n";
 
 
 	int i = 0;
@@ -1691,7 +1766,7 @@ int main(){
 		std::map<std::string, int> sub;
 
 		// if (flow.name[2] == 'e' && flow.name[3] == 'c' && flow.name[4] == 'o')
-		// if (flow.name.find("estimate_reparations_income") != std::string::npos)
+		if (flow.name.find("daily_update") != std::string::npos)
 			print_flow(code_db, result, flow, {0, i}, {"ROOT", ninja_name(flow.name)}, sub, -1);
 		i++;
 	}
