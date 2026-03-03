@@ -1,3 +1,39 @@
+
+struct container {
+        int* data1;
+        float* data2;
+        unsigned int* data3;
+};
+
+namespace sys {
+struct state {
+        container world;
+        float quality1;
+        float quality2;
+        float quality3;
+};
+}
+
+template<typename F>
+void apply_x(sys::state& state, F f) {
+        state.quality1 = f(state.quality1);
+}
+
+void update(sys::state& state1, sys::state& state2) {
+        state1.quality1 = state2.quality3 + state2.world.data2[2];
+        state2.world.data3[5] = state2.world.data3[4] * state2.world.data1[1];
+        if (state1.quality1 > 5) {
+                state1.quality1 = state1.quality1 + 2;
+        }
+
+        for (auto i = 5; i < 10; i++) {
+                state1.quality2 += state2.quality2;
+        }
+
+        apply_x(state1, [&](auto x) {return x + 1;});
+}
+
+
 struct big_object {
         int x;
         void inc() {
@@ -13,7 +49,6 @@ void test_big_object(big_object& state) {
         state.inc();
 }
 
-/*
 template<typename G, typename F>
 int apply(G g, F f) {
         return f(g);
@@ -70,39 +105,7 @@ void lame_function() {
 }
 }
 
-struct container {
-        int* data1;
-        float* data2;
-        unsigned int* data3;
-};
 
-namespace sys {
-struct state {
-        container world;
-        float quality1;
-        float quality2;
-        float quality3;
-};
-}
-
-template<typename F>
-void apply_x(sys::state& state, F f) {
-        state.quality1 = f(state.quality1);
-}
-
-void update(sys::state& state1, sys::state& state2) {
-        state1.quality1 = state2.quality3 + state2.world.data2[2];
-        state2.world.data3[5] = state2.world.data3[4] * state2.world.data1[1];
-        if (state1.quality1 > 5) {
-                state1.quality1 = state1.quality1 + 2;
-        }
-
-        for (auto i = 5; i < 10; i++) {
-                state1.quality2 += state2.quality2;
-        }
-
-        apply_x(state1, [&](auto x) {return x + 1;});
-}
 
 
 template<typename T>
@@ -164,5 +167,3 @@ void test11(){
         x += 40;
         alpha = add(z, 5);
 }
-
-*/
