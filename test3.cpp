@@ -142,7 +142,7 @@ void pretty_print_all(CXCursor cursor, std::string indent) {
 		auto original_template = clang_getSpecializedCursorTemplate(clang_getCursorReferenced(cursor));
 		if (!clang_Cursor_isNull(original_template)) {
 			CXString pretty = clang_getCursorUSR (original_template);
-			std::cout << indent << "USR REF TEM" << clang_getCString(pretty) << "\n";
+			std::cout << indent << "USR REF TEM " << clang_getCString(pretty) << "\n";
 			clang_disposeString(pretty);
 		}
 	}

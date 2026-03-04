@@ -1,3 +1,16 @@
+/*
+template<typename Taaa, typename  Gbbb, typename Fccc>
+Taaa the_silliest_battle(Taaa t, Gbbb g, Fccc f) {
+        return t + g + f;
+}
+
+int the_strongest_clown(int a, int b, int c) {
+        return the_silliest_battle(a, b, c) + the_silliest_battle(b, c, a) + the_silliest_battle(c, a, b);
+}
+
+*/
+
+
 struct index_wrapper {
         int value;
         int index() {
@@ -21,11 +34,18 @@ struct small_container {
         }
 };
 
+template<typename  F>
+void parallel_for(int a, int b, F f) {};
+
 void small_test (small_container& container) {
-        index_wrapper id {40};
-        container.change_data(id, container.get_data(id));
-        container.change_data(id, container.get_data(id));
-        container.change_data(id, container.get_data(id));
+        int VERY_IMPORTANT_VALUE = 666;
+        parallel_for(1, VERY_IMPORTANT_VALUE, [&](int value){
+                index_wrapper id {value};
+                container.change_data(id, container.get_data(id)  + value);
+                id.value = id.value + 10;
+                container.change_data(id, container.get_data(id) + value);
+                container.change_data(id, container.get_data(id) + value);
+        });
 }
 
 /*
@@ -217,5 +237,4 @@ void test11(){
         x += 40;
         alpha = add(z, 5);
 }
-
 */
