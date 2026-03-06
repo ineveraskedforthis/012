@@ -146,6 +146,24 @@ void pretty_print_all(CXCursor cursor, std::string indent) {
 			clang_disposeString(pretty);
 		}
 	}
+	{
+		auto t = clang_getCursorType(cursor);
+		auto tc = clang_getTypeDeclaration(t);
+		if (!clang_Cursor_isNull(tc)) {
+			{
+				CXString pretty = clang_getCursorUSR (tc);
+				std::cout << indent << "TYPE " << clang_getCString(pretty) << "\n";
+				clang_disposeString(pretty);
+			}
+
+			auto original_template = clang_getSpecializedCursorTemplate(tc);
+			if (!clang_Cursor_isNull(original_template)) {
+				CXString pretty = clang_getCursorUSR (original_template);
+				std::cout << indent << "TYPE TEM " << clang_getCString(pretty) << "\n";
+				clang_disposeString(pretty);
+			}
+		}
+	}
 
 	auto new_indent = indent + "\t";
 	clang_visitChildren(
