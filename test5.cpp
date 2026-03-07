@@ -2718,6 +2718,219 @@ handle_generic_cursor(
 }
 
 
+void
+execute_simple_statement(
+
+	int&
+	prefix,
+
+	function_description&
+	flow,
+
+	std::map<int, int>&
+	memory_access_before,
+
+	std::map<int, int>&
+	memory_access_after,
+
+	std::map<int, int>&
+	memory_mapping,
+
+	statement&
+	item,
+
+	int
+	memory_offset
+
+) {
+	auto true_memory_location = [&] (size_t location) {
+		auto it = memory_mapping.find(location);
+		if (it == memory_mapping.end()) {
+			return (int) location + memory_offset;
+		}
+		return it->second;
+	};
+
+	auto&
+	input
+	= item.input;
+
+	for (
+		auto
+		F_value
+		: item.applied.F
+	) {
+		auto F_loc = true_memory_location(input[F_value]);
+		for (
+			auto
+			G_value
+			: item.applied.G
+		) {
+			auto G_loc = true_memory_location(input[G_value]);
+			std::cout
+				<< "q" << prefix
+				<< "_word_"
+				<< F_loc
+				<< "_access_"
+				<< memory_access_before[F_loc]
+				<< "->"
+				<< "q" << prefix
+				<< "_word_"
+				<< G_loc
+				<< "_access_"
+				<< memory_access_after[G_loc]
+				<< "\n";
+		}
+	}
+}
+
+void execute_function(
+
+	int&
+	prefix,
+
+	meta_information&
+	meta,
+
+	std::map<int, int>&
+	memory_access,
+
+	function_description&
+	flow,
+
+	std::map<int, int>&
+	memory_mapping,
+
+	int
+	memory_offset
+
+) {
+	auto true_memory_location = [&] (size_t location) {
+		auto it = memory_mapping.find(location);
+		if (it == memory_mapping.end()) {
+			return (int) location + memory_offset;
+		}
+		return it->second;
+	};
+	auto get_memory_write_count = [&] (size_t true_location) {
+		auto it = memory_access.find(true_location);
+		if (it == memory_access.end()) {
+			memory_access[true_location] = 0;
+			return 0;
+		}
+		return  it->second;
+	};
+	auto inc_memory_write_count = [&] (size_t true_location) {
+		auto it = memory_access.find(true_location);
+		if (it == memory_access.end()) {
+			memory_access[true_location] = 0;
+		}
+		memory_access[true_location]++;
+	};
+
+	std::map<std::string, bool> mentioned;
+
+	for (
+		auto item : flow.variables
+	) {
+		if (mentioned.contains(item.name)) {
+			continue;
+		}
+		auto location = true_memory_location(item.memory_location);
+
+		std::cout << "q" << prefix << "_" << ninja_name(item.display) << "->" << "q" << prefix
+			<< "_word_"
+			<< location
+			<< "_access_"
+			<< get_memory_write_count(location)
+			<< "\n";
+		mentioned[item.name] = true;
+	}
+
+	for (
+		auto
+		item
+		: flow.execution.sequence
+	) {
+
+		std::map<int, int> memory_input;
+
+		auto&
+		input
+		= item.input;
+
+		for (
+			auto
+			F_value
+			: item.applied.F
+		) {
+			auto true_loc = true_memory_location(input[F_value]);
+			memory_input[true_loc] = get_memory_write_count(true_loc);
+		}
+
+		for (
+			auto
+			G_value
+			: item.applied.G
+		) {
+			auto true_loc = true_memory_location(input[G_value]);
+			inc_memory_write_count(true_loc);
+		}
+
+
+		if (
+			item.function_call >= 0
+		) {
+
+			auto&
+			next_function
+			= meta.functions[item.function_call];
+
+			for(
+				auto i = 0;
+				i < next_function.parameters_count;
+				i++
+			) {
+
+				auto
+				param
+				= next_function.variables[i];
+
+				auto
+				next_param
+				= next_function.variables[i + 1];
+
+				for (
+					int j = param.memory_location;
+					j < next_param.memory_location;
+					j++
+				) {
+					memory_mapping[j] = item.input[i];
+				}
+			}
+
+			execute_function(
+				prefix,
+				meta,
+				memory_access,
+				next_function,
+				memory_mapping,
+				memory_offset + flow.available_memory_location
+			);
+		} else {
+			execute_simple_statement(
+				prefix,
+				flow,
+				memory_input,
+				memory_access,
+				memory_mapping,
+				item,
+				memory_offset
+			);
+		}
+	}
+}
+
 int main(){
 	CXIndex index = clang_createIndex(0, 0); //Create index
 	CXTranslationUnit unit;
@@ -2821,96 +3034,20 @@ int main(){
 		<< "graph [ rankdir = \"LR\"]\n";
 
 	int i = 0;
-
 	for (auto& flow : code_db.functions) {
-
-		std::map<int, int> memory_access;
-
 		i++;
 
-		std::map<std::string, bool> mentioned;
+		std::map<int, int> access_count;
+		std::map<int, int> memmap;
 
-		for (
-			auto item : flow.variables
-		) {
-			if (mentioned.contains(item.name)) {
-				continue;
-			}
-			std::cout << ninja_name(flow.name + item.display) << "->"
-				<< ninja_name(flow.name)
-				<< "_word_"
-				<< item.memory_location
-				<< "_access_0\n"
-				<< "\n";
-			mentioned[item.name] = true;
-		}
-
-		for (
-			auto
-			item
-			: flow.execution.sequence
-		) {
-
-			std::map<int, int> memory_input;
-
-			auto
-			input
-			= item.input;
-
-			for (
-				auto
-				F_value
-				: item.applied.F
-			) {
-				if (memory_access.find(input[F_value]) == memory_access.end()) {
-					memory_access[input[F_value]] = 0;
-				}
-				auto mem_access_time = memory_access[input[F_value]];
-				memory_input[input[F_value]] = mem_access_time;
-			}
-
-
-
-			for (
-				auto
-				G_value
-				: item.applied.G
-			) {
-
-				if (memory_access.find(input[G_value]) == memory_access.end()) {
-					memory_access[input[G_value]] = 0;
-				} else {
-					memory_access[input[G_value]]++;
-				}
-			}
-
-			for (
-				auto
-				F_value
-				: item.applied.F
-			) {
-				for (
-					auto
-					G_value
-					: item.applied.G
-				) {
-					std::cout
-						<< ninja_name(flow.name)
-						<< "_word_"
-						<< input[F_value]
-						<< "_access_"
-						<< memory_input[input[F_value]]
-						<< "->"
-						<< ninja_name(flow.name)
-						<< "_word_"
-						<< input[G_value]
-						<< "_access_"
-						<< memory_access[input[G_value]]
-						<< "\n";
-				}
-			}
-		}
-
+		execute_function(
+			i,
+			code_db,
+			access_count,
+			flow,
+			memmap,
+			0
+		);
 	}
 
 	std::cout

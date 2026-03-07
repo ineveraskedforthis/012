@@ -10,7 +10,12 @@ int the_strongest_clown(int a, int b, int c) {
 
 */
 
+void assignment_test() {
+        int x = 1;
+}
 
+
+/*
 
 int add(int a, int b) {
         return a + b;
@@ -62,6 +67,8 @@ struct small_container {
                 data_row.very_specific_wrapper.values()[i.index()] = k;
         }
 };
+*/
+
 
 /*
 
