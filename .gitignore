@@ -19,6 +19,18 @@ a.exe
 b.ilk
 b.pdb
 b.exe
+c.ilk
+c.pdb
+c.exe
+af.ilk
+af.pdb
+af.exe
+bf.ilk
+bf.pdb
+bf.exe
+cf.ilk
+cf.pdb
+cf.exe
 code.txt
 code2.txt
 code3.txt
@@ -30,3 +42,4 @@ test4-utf8.txt
 test4.txt
 test4-main.txt
 test4-location.txt
+test5.txt

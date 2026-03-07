@@ -31,3 +31,53 @@ inline void pretty_print(CXCursor cursor, std::string indent) {
 	clang_disposeString(display);
 	clang_disposeString(display_ref);
 }
+
+inline
+std::string
+ninja_name(
+	std::string name
+) {
+	std::string result = "";
+	for (int i = 0; i < name.length(); i++) {
+		if (
+			name[i] == ':' || name[i] == '$'
+			|| name[i] == ' ' || name[i] == '|'
+			|| name[i] == '#' || name[i] == '@'
+			|| name[i] == '(' || name[i] == '[' || name[i] == '}'
+			|| name[i] == ')' || name[i] == ']' || name[i] == '{'
+			|| name[i] == ' ' || name[i] == ','
+		) {
+			result += "_";
+		}
+		else if (name[i] == '.') {
+			result += "dot";
+		} else if (name[i] == '*') {
+			result += "star";
+		} else if (name[i] == '!') {
+			result += "excl";
+		} else if (name[i] == '+') {
+			result += "plus";
+		} else if (name[i] == '-') {
+			result += "minus";
+		} else if (name[i] == '^') {
+			result += "caret";
+		} else if (name[i] == '>') {
+			result += "gt";
+		} else if (name[i] == '<') {
+			result += "lt";
+		} else if (name[i] == '=') {
+			result += "eq";
+		} else if (name[i] == '&') {
+			result += "amp";
+		} else if (name[i] == '/') {
+			result += "div";
+		} else if(name[i] == '\\') {
+			result += "bs";
+		}else if (name[i] == '~') {
+			result += "tilde";
+		} else  {
+			result += name[i];
+		}
+	}
+	return result;
+}

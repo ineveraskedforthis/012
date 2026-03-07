@@ -11,6 +11,35 @@ int the_strongest_clown(int a, int b, int c) {
 */
 
 
+
+int add(int a, int b) {
+        return a + b;
+}
+
+int super_add(int a, int b) {
+        int x = add(a, b);
+        return x;
+}
+
+void test10(){
+        int x = 1;
+        int y = 2;
+        int z = add(x, y);
+        int* alpha = &x;
+        *alpha = z + 5;
+}
+
+void test11(){
+        int x = 1;
+        int y = 2;
+        int z = add(x, y);
+        int& alpha = x;
+        x += 10;
+        x += 20;
+        x += 40;
+        alpha = add(z, 5);
+}
+
 struct index_wrapper {
         int value;
         int index() {
@@ -34,6 +63,8 @@ struct small_container {
         }
 };
 
+/*
+
 template<typename  F>
 void parallel_for(int a, int b, F f) {};
 
@@ -48,7 +79,6 @@ void small_test (small_container& container) {
         });
 }
 
-/*
 struct field {
         int* data;
         int* values() {
@@ -129,14 +159,6 @@ int test() {
         return apply(1, f) + apply(2, [&](auto x){return x * x;});
 }
 
-int add(int a, int b) {
-        return a + b;
-}
-
-int super_add(int a, int b) {
-        int x = add(a, b);
-        return x;
-}
 
 namespace random_namespace {
 static int side_value;
@@ -219,22 +241,4 @@ int test_struct2() {
         return x.get_data() + x.super_function(x.data, 20);
 }
 
-void test10(){
-        int x = 1;
-        int y = 2;
-        int z = add(x, y);
-        int* alpha = &x;
-        *alpha = z + 5;
-}
-
-void test11(){
-        int x = 1;
-        int y = 2;
-        int z = add(x, y);
-        int& alpha = x;
-        x += 10;
-        x += 20;
-        x += 40;
-        alpha = add(z, 5);
-}
 */

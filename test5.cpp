@@ -5,6 +5,7 @@
 #include <vector>
 #include <optional>
 #include <utility>
+#include <map>
 
 #include "pretty_print.hpp"
 
@@ -494,12 +495,6 @@ category_of_types {
 	template_usr_to_product_functor;
 
 	std::map<
-		std::string,
-		type_object
-	>
-	usr_to_object;
-
-	std::map<
 		int,
 		enriched_product
 	>
@@ -551,7 +546,7 @@ get_root_usr(
 
 std::optional<type_object>
 get_type (
-	category_of_types
+	category_of_types&
 	C,
 
 	CXCursor
@@ -575,7 +570,7 @@ get_type (
 
 type_object
 request_object (
-	category_of_types
+	category_of_types&
 	C
 )
 {
@@ -591,7 +586,7 @@ request_object (
 void
 provide_name(
 
-	category_of_types
+	category_of_types&
 	C,
 
 	type_object
@@ -609,7 +604,7 @@ provide_name(
 void
 provide_name(
 
-	category_of_types
+	category_of_types&
 	C,
 
 	type_arrow
@@ -626,7 +621,7 @@ provide_name(
 type_arrow
 request_arrow (
 
-	category_of_types
+	category_of_types&
 	C,
 
 	type_object
@@ -654,7 +649,7 @@ request_arrow (
 size_t
 type_size(
 
-	category_of_types
+	category_of_types&
 	C,
 
 	type_object
@@ -682,13 +677,13 @@ type_size(
 type_object
 apply_product_functor(
 
-	category_of_types
+	category_of_types&
 	C,
 
-	product_functor
+	product_functor&
 	P,
 
-	std::vector<type_object>
+	std::vector<type_object>&
 	arguments
 
 )
@@ -896,13 +891,18 @@ allocate_space(
 		auto
 		object_exists
 		= C
-			.usr_to_object
+			.name_to_type
 			.find(type_usr);
 
 		if (
-			object_exists == C.usr_to_object.end()
+			object_exists == C.name_to_type.end()
 		) {
-			assert(false);
+			/*
+
+			Case of literal type
+
+			*/
+			F.available_memory_location++;
 		} else {
 			result.assumed_type = object_exists->second;
 
@@ -1159,9 +1159,9 @@ handle_generic_cursor(
 		// obtain the type
 		handle_generic_cursor_children(cursor, meta);
 
-		assert(
-			meta->retrieved_type
-		);
+		if (!meta->retrieved_type) {
+			meta->retrieved_type = PRIMITIVE_TYPE;
+		}
 
 		assert(
 			meta->function_stack.size() > 0
@@ -1172,13 +1172,11 @@ handle_generic_cursor(
 
 		auto&
 		function
-		= meta
-			->functions
-			[meta->function_stack.size()];
+		= meta->top_function();
 
 		variable
-		parameter {
-		};
+		parameter
+		= allocate_space(meta->types, function, cursor);
 
 		parameter.name = usr;
 		parameter.display = display;
@@ -1193,6 +1191,7 @@ handle_generic_cursor(
 
 		function.parameters_count++;
 		function.variables.push_back(parameter);
+		function.usr_to_variable[usr] = function.variables.size() - 1;
 
 		return CXChildVisit_Break;
 	}
@@ -1446,6 +1445,7 @@ handle_generic_cursor(
 	if (
 		cursor_kind == CXCursor_TypeRef
 	) {
+		meta->retrieved_type = get_type(meta->types, cursor);
 		return CXChildVisit_Break;
 	}
 
@@ -1478,9 +1478,9 @@ handle_generic_cursor(
 
 		*/
 
-		auto
+		auto&
 		func
-		= meta->functions[meta->function_stack.size()];
+		= meta->top_function();
 
 		variable
 		reference
@@ -1598,7 +1598,7 @@ handle_generic_cursor(
 
 		handle_generic_cursor_children(cursor, meta);
 
-		auto
+		auto&
 		func
 		= meta->top_function();
 
@@ -1627,10 +1627,13 @@ handle_generic_cursor(
 
 		*/
 
+		target.name = usr;
+		target.display = display;
 		target.pointer_content = source.pointer_content;
 		target.reference_to_program = source.reference_to_program;
 
 		func.variables.push_back(target);
+		func.usr_to_variable[usr] = func.variables.size() - 1;
 
 		statement
 		write {
@@ -1672,6 +1675,8 @@ handle_generic_cursor(
 		};
 
 		meta->types.discovered_products.push_back(product);
+		provide_name(meta->types, object, usr);
+
 		meta->type_stack.push_back(object);
 
 		/*
@@ -1704,7 +1709,7 @@ handle_generic_cursor(
 					return CXChildVisit_Continue;
 				}
 
-				handle_generic_cursor_children(
+				handle_generic_cursor(
 					current_cursor,
 					(meta_information*)client_data
 				);
@@ -1744,7 +1749,7 @@ handle_generic_cursor(
 					return CXChildVisit_Continue;
 				}
 
-				handle_generic_cursor_children(
+				handle_generic_cursor(
 					current_cursor,
 					(meta_information*)client_data
 				);
@@ -1887,6 +1892,8 @@ handle_generic_cursor(
 
 
 		*/
+
+		handle_generic_cursor_children(cursor, meta);
 
 		return CXChildVisit_Break;
 	}
@@ -2694,7 +2701,9 @@ handle_generic_cursor(
 			result.display = "+=";
 		}
 
-		to_add.input.push_back(result.memory_location);
+		meta->call_stack.back().input.push_back(result.memory_location);
+
+		meta->top_function().execution.sequence.push_back(meta->call_stack.back());
 
 		return CXChildVisit_Break;
 	}
@@ -2706,4 +2715,205 @@ handle_generic_cursor(
 	handle_generic_cursor_children(cursor, meta);
 
 	return CXChildVisit_Recurse;
+}
+
+
+int main(){
+	CXIndex index = clang_createIndex(0, 0); //Create index
+	CXTranslationUnit unit;
+
+	std::vector<const char*> flags2 {"clang++", "-std=c++23", "-mavx2", "-mfma", "-DGLEW_NO_GLU","-DGLEW_STATIC","-DGLM_ENABLE_EXPERIMENTAL","-DINCREMENTAL=1","-DPROJECT_ROOT=C:/_projects/cpp/alice","-DVC_EXTRALEAN","-DWIN32_MEAN_AND_LEAN","-D_CRT_SECURE_NO_WARNINGS","-IC:/_projects/cpp/alice/src","-IC:/_projects/cpp/alice/src/ai","-IC:/_projects/cpp/alice/src/common_types","-IC:/_projects/cpp/alice/src/filesystem","-IC:/_projects/cpp/alice/src/gamestate","-IC:/_projects/cpp/alice/src/gui","-IC:/_projects/cpp/alice/src/gui/province_tiles","-IC:/_projects/cpp/alice/src/gui/topbar_subwindows","-IC:/_projects/cpp/alice/src/gui/topbar_subwindows/diplomacy_subwindows","-IC:/_projects/cpp/alice/src/gui/topbar_subwindows/production_subwindows","-IC:/_projects/cpp/alice/src/gui/topbar_subwindows/politics_subwindows","-IC:/_projects/cpp/alice/src/gui/topbar_subwindows/military_subwindows","-IC:/_projects/cpp/alice/src/graphics","-IC:/_projects/cpp/alice/src/parsing","-IC:/_projects/cpp/alice/src/window","-IC:/_projects/cpp/alice/src/text","-IC:/_projects/cpp/alice/src/sound","-IC:/_projects/cpp/alice/src/map","-IC:/_projects/cpp/alice/src/network","-IC:/_projects/cpp/alice/src/nations","-IC:/_projects/cpp/alice/src/gamerule","-IC:/_projects/cpp/alice/src/provinces","-IC:/_projects/cpp/alice/src/economy","-IC:/_projects/cpp/alice/src/culture","-IC:/_projects/cpp/alice/src/military","-IC:/_projects/cpp/alice/src/scripting","-IC:/_projects/cpp/alice/src/scripting/luajit","-IC:/_projects/cpp/alice/src/zstd","-IC:/_projects/cpp/alice/src/lunasvg","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/glew-src/include/GL","-IC:/_projects/cpp/alice/ankerl","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/glew-src/include","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/freetype-build/include","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/freetype-src/include","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/harfbuzz-src/src","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/glm-src","-IC:/_projects/cpp/alice/out/build/x64-release-windows-avx2/_deps/datacontainer-src/CommonIncludes","-IC:/_projects/cpp/alice/dependencies/stb/.","-o economy.o"
+	};
+
+	std::vector<const char*> flags {"clang++", "-std=c++23"};
+
+	clang_parseTranslationUnit2FullArgv(
+		index,
+		"test_function.cpp",
+		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
+		// "C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
+		flags.data(), flags.size(),
+		// flags2.data(), flags2.size(),
+		nullptr, 0,
+		CXTranslationUnit_None,
+		&unit
+	);
+
+	if (unit == nullptr){
+		std::cerr <<"Unable to parse translation unit. Quitting.\n";
+		return 0;
+	}
+
+	auto diag_count = clang_getNumDiagnostics(unit);
+
+	for (unsigned int i = 0; i < diag_count; i++) {
+		auto  diag = clang_getDiagnostic(unit, i);
+		auto text = clang_getDiagnosticSpelling(diag);
+		std::cout << clang_getCString(text) <<"\n";
+		clang_disposeString(text);
+	}
+
+	CXCursor cursor = clang_getTranslationUnitCursor(unit); //Obtain a cursor at the root of the translation unit
+
+	meta_information code_db{};
+
+	function_description
+	root {
+	};
+
+	root.name = "Root";
+
+	code_db.functions.push_back(root);
+
+	code_db.function_stack.push_back(0);
+
+
+	//  we hardcode `parallel for` to launch lambdas
+
+	/*
+	flow parallel {};
+	parallel.name = "parallel_execute";
+	parallel.hash = 1;
+	parallel.parameters_count = 3;
+
+	point index_start {};
+	index_start.name = "pl_start";
+	index_start.is_param = true;
+	index_start.display_name = "loop start";
+	parallel.local_parameters.push_back(code_db.points.size());
+	code_db.points.push_back(index_start);
+
+	point index_end {};
+	index_end.name = "pl_end";
+	index_end.is_param = true;
+	index_end.display_name = "loop end";
+	int location_end = code_db.points.size();
+	parallel.local_parameters.push_back(code_db.points.size());
+	code_db.points.push_back(index_end);
+
+	point job {};
+	job.name = "job";
+	job.is_param = true;
+	job.display_name = "job";
+	int location_job = code_db.points.size();
+	parallel.local_parameters.push_back(code_db.points.size());
+	code_db.points.push_back(job);
+
+	point execution {};
+	execution.name = "execute";
+	execution.display_name = "execute";
+	execution.is_function_call = true;
+	execution.computation.push_back(location_job);
+	execution.computation.push_back(location_end);
+	parallel.local_parameters.push_back(code_db.points.size());
+	code_db.points.push_back(execution);
+
+	code_db.flows.push_back(parallel);
+	*/
+
+	handle_generic_cursor(cursor, &code_db);
+
+	std::cout
+		<< "digraph G {"
+		<< "fontname=\"Helvetica,Arial,sans-serif\""
+		<< "node [fontname=\"Helvetica,Arial,sans-serif\"]"
+		<< "edge [fontname=\"Helvetica,Arial,sans-serif\"]"
+		<< "graph [ rankdir = \"LR\"]\n";
+
+	int i = 0;
+
+	for (auto& flow : code_db.functions) {
+
+		std::map<int, int> memory_access;
+
+		i++;
+
+		std::map<std::string, bool> mentioned;
+
+		for (
+			auto item : flow.variables
+		) {
+			if (mentioned.contains(item.name)) {
+				continue;
+			}
+			std::cout << ninja_name(flow.name + item.display) << "->"
+				<< ninja_name(flow.name)
+				<< "_word_"
+				<< item.memory_location
+				<< "_access_0\n"
+				<< "\n";
+			mentioned[item.name] = true;
+		}
+
+		for (
+			auto
+			item
+			: flow.execution.sequence
+		) {
+
+			std::map<int, int> memory_input;
+
+			auto
+			input
+			= item.input;
+
+			for (
+				auto
+				F_value
+				: item.applied.F
+			) {
+				if (memory_access.find(input[F_value]) == memory_access.end()) {
+					memory_access[input[F_value]] = 0;
+				}
+				auto mem_access_time = memory_access[input[F_value]];
+				memory_input[input[F_value]] = mem_access_time;
+			}
+
+
+
+			for (
+				auto
+				G_value
+				: item.applied.G
+			) {
+
+				if (memory_access.find(input[G_value]) == memory_access.end()) {
+					memory_access[input[G_value]] = 0;
+				} else {
+					memory_access[input[G_value]]++;
+				}
+			}
+
+			for (
+				auto
+				F_value
+				: item.applied.F
+			) {
+				for (
+					auto
+					G_value
+					: item.applied.G
+				) {
+					std::cout
+						<< ninja_name(flow.name)
+						<< "_word_"
+						<< input[F_value]
+						<< "_access_"
+						<< memory_input[input[F_value]]
+						<< "->"
+						<< ninja_name(flow.name)
+						<< "_word_"
+						<< input[G_value]
+						<< "_access_"
+						<< memory_access[input[G_value]]
+						<< "\n";
+				}
+			}
+		}
+
+	}
+
+	std::cout
+		<< "root [shape=Mdiamond];"
+		<< "}";
 }
