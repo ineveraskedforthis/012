@@ -227,14 +227,20 @@ struct
 statement {
 
 	std::vector<size_t>
-	input;
+	input{
+	};
 
 	instruction
-	applied;
+	applied{
+	};
 
-	int
+	std::string
 	function_call
-	= -1;
+	= "";
+
+	bool
+	indirect_function_call
+	= false;
 
 };
 
@@ -306,9 +312,14 @@ type_object {
 	id;
 
 	bool
+	is_empty() {
+		return id == 0;
+	}
+
+	bool
 	is_primitive()
 	{
-		return id == 0;;
+		return id == 1;
 	}
 
 };
@@ -361,9 +372,13 @@ variable {
 	act_of_transgression
 	= false;
 
-	size_t
-	reference_to_program
-	= 0;
+	bool
+	is_return_dummy
+	= false;
+
+	bool
+	has_memory_location
+	= false;
 
 	size_t
 	memory_location
@@ -372,10 +387,6 @@ variable {
 	std::vector<size_t>
 	implicit_memory_location {
 	};
-
-	size_t
-	pointer_content
-	= 0;
 
 	type_object
 	assumed_type
@@ -661,6 +672,14 @@ type_size(
 	registered_product
 		= C.type_to_product.find(T.id);
 
+	if (T.is_empty()) {
+		return 0;
+	}
+
+	if (T.is_primitive()) {
+		return 1;
+	}
+
 	if (
 		registered_product == C.type_to_product.end()
 	) {
@@ -771,7 +790,6 @@ apply_product_functor(
 	return new_object;
 }
 
-
 struct
 function_description {
 
@@ -782,25 +800,40 @@ function_description {
 	display {};
 
 	int
-	parameters_count = 0;
+	parameters_count
+	= 0;
+
+	bool
+	is_templated
+	= false;
 
 	std::vector <variable>
-	variables {};
+	variables {
+	};
 
-	std::map <
-		std::string,
-		size_t
-	>
-	usr_to_variable{};
+	std::map <std::string, size_t>
+	usr_to_variable{
+	};
 
 	program
-	execution;
+	execution{
+	};
 
 	int
-	return_variable_index = -1;
+	return_variable_index
+	= -1;
 
 	size_t
-	available_memory_location = 0;
+	available_memory_location
+	= 0;
+
+	std::map <size_t, size_t>
+	memory_slice_pointer {
+	};
+
+	std::map <size_t, std::string>
+	memory_slice_function_call {
+	};
 
 };
 
@@ -820,7 +853,9 @@ allocate_space(
 {
 	variable result;
 	result.memory_location = fun.available_memory_location;
-	if (t.is_primitive()) {
+	result.has_memory_location = true;
+	if (t.is_empty()) {}
+	else if (t.is_primitive()) {
 		fun.available_memory_location++;
 	} else {
 		auto& p = category.type_to_product[t.id];
@@ -875,6 +910,7 @@ allocate_space(
 	};
 
 	result.memory_location = F.available_memory_location;
+	result.has_memory_location = true;
 	result.name = usr;
 	result.display = display;
 
@@ -980,8 +1016,7 @@ resolve_implicit_memory_location(
 	statement
 	resolution {
 		{},
-		resolver,
-		-1
+		resolver
 	};
 
 	F.execution.sequence.push_back(resolution);
@@ -1067,6 +1102,32 @@ handle_generic_cursor(
 	meta
 
 ) ;
+
+bool
+child_exist(
+	CXCursor
+	cursor
+)
+{
+	bool
+	exist
+	= false;
+
+	clang_visitChildren(
+		cursor,
+		[](
+			CXCursor current_cursor,
+			CXCursor parent,
+			CXClientData client_data
+		){
+			*(bool*)client_data = true;
+			return CXChildVisit_Break;
+		},
+		&exist
+	);
+
+	return exist;
+}
 
 void
 handle_generic_cursor_children(
@@ -1200,16 +1261,24 @@ handle_generic_cursor(
 	if (
 		cursor_kind == CXCursor_LambdaExpr
 	) {
+		auto&
+		function
+		= meta->top_function();
 
 		function_description
 		lambda {
 		};
 
+		lambda.available_memory_location = function.available_memory_location;
+
 		lambda.name = "Lambda" + std::to_string(clang_hashCursor(cursor));
 		lambda.display = "Lambda";
+		int lambda_index = meta->functions.size();
 		meta->functions.push_back(lambda);
+		meta->usr_to_function[lambda.name] = lambda_index;
 
-		meta->function_stack.push_back(meta->functions.size() - 1);
+
+		meta->function_stack.push_back(lambda_index);
 		handle_generic_cursor_children(cursor, meta);
 		meta->function_stack.pop_back();
 
@@ -1217,24 +1286,23 @@ handle_generic_cursor(
 			meta->function_stack.size() > 0
 		);
 
-		auto&
-		function
-		= meta
-			->functions
-			[meta->function_stack.size()];
 
 		variable
 		lambda_pointer {
 		};
 
 		lambda_pointer.memory_location = function.available_memory_location;
-		function.available_memory_location++;
+		lambda_pointer.has_memory_location = true;
+		meta->top_function().available_memory_location++;
 		lambda_pointer.act_of_transgression = true;
 		lambda_pointer.assumed_type = PRIMITIVE_TYPE;
 		lambda_pointer.display = "Lambda pointer";
 		lambda_pointer.name = "Lambda pointer";
-		lambda_pointer.reference_to_program = meta->functions.size() - 1;
-		function.variables.push_back(lambda_pointer);
+		meta->top_function()
+			.memory_slice_function_call
+			[lambda_pointer.memory_location]
+			= lambda.name;
+		meta->top_function().variables.push_back(lambda_pointer);
 
 		return CXChildVisit_Break;
 	}
@@ -1252,7 +1320,6 @@ handle_generic_cursor(
 		cursor_kind == CXCursor_FunctionDecl
 		|| cursor_kind == CXCursor_FunctionTemplate
 	) {
-
 		// check for definition:
 
 		bool
@@ -1285,9 +1352,17 @@ handle_generic_cursor(
 		func {
 		};
 
+
+		if (cursor_kind == CXCursor_FunctionTemplate) {
+			func.is_templated = true;
+		}
+
+		func.available_memory_location = meta->top_function().available_memory_location;
+
 		func.name = usr;
 		func.display = display;
 		meta->functions.push_back(func);
+		meta->usr_to_function[usr] = meta->functions.size() - 1;
 
 		meta->function_stack.push_back(meta->functions.size() - 1);
 		handle_generic_cursor_children(cursor, meta);
@@ -1428,6 +1503,7 @@ handle_generic_cursor(
 		method.available_memory_location += product.total_size;
 		method.variables.push_back(this_param);
 		meta->functions.push_back(method);
+		meta->usr_to_function[usr] = meta->functions.size() - 1;
 
 		/*
 
@@ -1460,6 +1536,10 @@ handle_generic_cursor(
 		cursor_kind == CXCursor_DeclRefExpr
 	) {
 
+		// if (cursor_type.kind == CXType_FunctionProto) {
+			// return CXChildVisit_Break;
+		// }
+
 		/*
 
 		CXCursor_DeclRefExpr means that a certain ALREADY declared variable is referenced.
@@ -1482,11 +1562,62 @@ handle_generic_cursor(
 		func
 		= meta->top_function();
 
-		variable
-		reference
-		= func.variables[func.usr_to_variable[usr]];
+		for (int stack_layer = meta->function_stack.size() - 1; stack_layer >= 0; stack_layer--) {
 
-		func.variables.push_back(reference);
+			auto
+			scope_index
+			= meta->function_stack[stack_layer];
+
+			auto&
+			function_layer
+			= meta->functions[scope_index];
+
+			auto
+			it
+			= function_layer.usr_to_variable.find(usr);
+
+			if (
+				it != function_layer.usr_to_variable.end()
+			) {
+				variable
+				reference
+				= function_layer.variables[it->second];
+
+				func.variables.push_back(reference);
+
+				return CXChildVisit_Break;
+			}
+
+
+		}
+
+		if
+			(cursor_type.kind != CXType_FunctionProto
+		) {
+			assert(false);
+		} else {
+			variable
+			function_pointer
+			= allocate_space(
+				meta->types,
+				meta->top_function(),
+				PRIMITIVE_TYPE
+			);
+
+			meta
+				->top_function()
+				.memory_slice_function_call
+				[function_pointer.memory_location]
+				= meta->usr_to_function[usr];
+
+			function_pointer.act_of_transgression = true;
+			function_pointer.name = usr;
+			function_pointer.name  = display;
+
+			func.variables.push_back(function_pointer);
+
+			return CXChildVisit_Break;
+		}
 
 		return CXChildVisit_Break;
 	}
@@ -1596,55 +1727,67 @@ handle_generic_cursor(
 
 		*/
 
-		handle_generic_cursor_children(cursor, meta);
-
-		auto&
-		func
-		= meta->top_function();
-
-		auto&
-		source
-		= resolve_implicit_memory_location(
-			meta->types,
-			func,
-			func.variables.back()
-		);
-
 		variable
-		target
-		= allocate_space(
-			meta->types,
-			func,
-			cursor
-		);
+		target{
+		};
 
-		/*
+		bool has_source = child_exist(cursor);
 
-		We have to do a manual write when we store a reference
-		to function or a memory address to preserve the value at given time;
+		if (has_source) {
+			handle_generic_cursor_children(cursor, meta);
+			auto&
+			source
+			= resolve_implicit_memory_location(
+				meta->types,
+				meta->top_function(),
+				meta->top_function().variables.back()
+			);
 
-		After parsing this information would be hard to recover.
 
-		*/
+
+			if (cursor_type.kind != CXType_LValueReference) {
+				target = allocate_space(
+					meta->types,
+					meta->top_function(),
+					cursor
+				);
+			} else {
+				target.memory_location = source.memory_location;
+				target.has_memory_location = true;
+			}
+
+			/*
+
+			We have to do a manual write when we store a reference
+			to function or a memory address to preserve the value at given time;
+
+			After parsing this information would be hard to recover.
+
+			*/
+
+			meta->top_function().memory_slice_pointer[target.memory_location]
+				= meta->top_function().memory_slice_pointer[source.memory_location];
+
+			meta->top_function().memory_slice_function_call[target.memory_location]
+				= meta->top_function().memory_slice_function_call[source.memory_location];
+
+			statement
+			write {
+				{
+					source.memory_location,
+					target.memory_location
+				},
+				BASIC_INSTRUCTION::WRITE
+			};
+
+			meta->top_function().execution.sequence.push_back(write);
+		}
 
 		target.name = usr;
 		target.display = display;
-		target.pointer_content = source.pointer_content;
-		target.reference_to_program = source.reference_to_program;
 
-		func.variables.push_back(target);
-		func.usr_to_variable[usr] = func.variables.size() - 1;
-
-		statement
-		write {
-			{
-				source.memory_location,
-				target.memory_location
-			},
-			BASIC_INSTRUCTION::WRITE
-		};
-
-		func.execution.sequence.push_back(write);
+		meta->top_function().variables.push_back(target);
+		meta->top_function().usr_to_variable[usr] = meta->top_function().variables.size() - 1;
 
 		return CXChildVisit_Break;
 	}
@@ -2149,7 +2292,18 @@ handle_generic_cursor(
 		command {
 		};
 
-		command.function_call = meta->usr_to_function[usr];
+		auto it = meta->usr_to_function.find(usr);
+
+		command.function_call = usr;
+
+		variable
+		dummy
+		= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+
+		dummy.name = "return_" + usr;
+		dummy.display = "Return value " + display;
+		dummy.is_return_dummy = true;
+
 
 		meta->call_stack.push_back(command);
 		clang_visitChildren(
@@ -2198,8 +2352,13 @@ handle_generic_cursor(
 		updated_command
 		= meta->call_stack.back();
 
+		// updated_command.input.erase(updated_command.input.begin());
+
+		updated_command.applied.G.push_back(dummy.memory_location);
+
 		meta->top_function().execution.sequence.push_back(updated_command);
 		meta->call_stack.pop_back();
+		meta->top_function().variables.push_back(dummy);
 
 		return CXChildVisit_Break;
 	}
@@ -2338,6 +2497,7 @@ handle_generic_cursor(
 				= scope->top_function().variables.back();
 
 				subscript.memory_location = indexed.memory_location;
+				subscript.has_memory_location = true;
 				for (
 					auto i : indexed.implicit_memory_location
 				) {
@@ -2505,7 +2665,9 @@ handle_generic_cursor(
 		current_function
 		= meta->top_function();
 
+
 		current_function.return_variable_index = current_function.variables.size() -1;
+
 
 		return CXChildVisit_Break;
 	}
@@ -2702,8 +2864,10 @@ handle_generic_cursor(
 		}
 
 		meta->call_stack.back().input.push_back(result.memory_location);
+		meta->top_function().variables.push_back(result);
 
 		meta->top_function().execution.sequence.push_back(meta->call_stack.back());
+		meta->call_stack.pop_back();
 
 		return CXChildVisit_Break;
 	}
@@ -2721,6 +2885,9 @@ handle_generic_cursor(
 void
 execute_simple_statement(
 
+	std::map<int, std::string>&
+	memory_location_name,
+
 	int&
 	prefix,
 
@@ -2733,7 +2900,7 @@ execute_simple_statement(
 	std::map<int, int>&
 	memory_access_after,
 
-	std::map<int, int>&
+	std::vector<std::map<int, int>>&
 	memory_mapping,
 
 	statement&
@@ -2743,12 +2910,54 @@ execute_simple_statement(
 	memory_offset
 
 ) {
-	auto true_memory_location = [&] (size_t location) {
-		auto it = memory_mapping.find(location);
-		if (it == memory_mapping.end()) {
+	auto
+	true_memory_location
+	= [&] (
+		size_t
+		location
+	) {
+		auto
+		it
+		= memory_mapping.back().find(location);
+		if (it == memory_mapping.back().end()) {
 			return (int) location + memory_offset;
 		}
-		return it->second;
+		auto true_loc = -1;
+		while (it != memory_mapping.back().end()) {
+			if (true_loc == it->second) {
+				break;
+			}
+			true_loc = it->second;
+			it = memory_mapping.back().find(true_loc);
+		}
+		return true_loc;
+	};
+
+	auto
+	get_name_memory_location
+	= [&] (
+		size_t true_location
+	) {
+		auto
+		it
+		= memory_location_name.find(true_location);
+
+		if (it != memory_location_name.end()) {
+			return it->second;
+		}
+
+		for (
+			auto item : flow.variables
+		) {
+			if (
+				true_memory_location(item.memory_location) == true_location
+			) {
+				memory_location_name[true_location] = "w" + std::to_string(true_location) + "_" + ninja_name(item.display);
+				return memory_location_name[true_location];
+			}
+		}
+
+		return "word_" + std::to_string(true_location);
 	};
 
 	auto&
@@ -2769,22 +2978,23 @@ execute_simple_statement(
 			auto G_loc = true_memory_location(input[G_value]);
 			std::cout
 				<< "q" << prefix
-				<< "_word_"
-				<< F_loc
-				<< "_access_"
+				<< "_" << get_name_memory_location(F_loc)
+				<< "_W"
 				<< memory_access_before[F_loc]
 				<< "->"
 				<< "q" << prefix
-				<< "_word_"
-				<< G_loc
-				<< "_access_"
+				<< "_" << get_name_memory_location(G_loc)
+				<< "_W"
 				<< memory_access_after[G_loc]
 				<< "\n";
 		}
 	}
 }
 
-void execute_function(
+std::optional<size_t> execute_function(
+
+	std::map<int, std::string>&
+	memory_location_name,
 
 	int&
 	prefix,
@@ -2798,127 +3008,275 @@ void execute_function(
 	function_description&
 	flow,
 
-	std::map<int, int>&
+	std::map<size_t, std::string>&
+	memory_slice_functions,
+
+	std::vector<std::map<int, int>>&
 	memory_mapping,
 
 	int
-	memory_offset
+	memory_offset,
+
+	int&
+	next_memory_offset
 
 ) {
-	auto true_memory_location = [&] (size_t location) {
-		auto it = memory_mapping.find(location);
-		if (it == memory_mapping.end()) {
+	next_memory_offset = memory_offset + flow.available_memory_location;
+
+	auto
+	true_memory_location
+	= [&] (
+		size_t
+		location
+	) {
+		auto
+		it
+		= memory_mapping.back().find(location);
+		if (it == memory_mapping.back().end()) {
 			return (int) location + memory_offset;
 		}
-		return it->second;
+		auto true_loc = -1;
+		while (it != memory_mapping.back().end()) {
+			if (true_loc == it->second) {
+				break;
+			}
+			true_loc = it->second;
+			it = memory_mapping.back().find(true_loc);
+		}
+		return true_loc;
 	};
-	auto get_memory_write_count = [&] (size_t true_location) {
-		auto it = memory_access.find(true_location);
+
+
+	for (auto& [k, v] : flow.memory_slice_function_call) {
+		memory_slice_functions[true_memory_location(k)] = v;
+	}
+
+	auto
+	get_memory_write_count
+	= [&] (
+		size_t true_location
+	) {
+		auto
+		it
+		= memory_access.find(true_location);
+
 		if (it == memory_access.end()) {
 			memory_access[true_location] = 0;
 			return 0;
 		}
 		return  it->second;
 	};
-	auto inc_memory_write_count = [&] (size_t true_location) {
-		auto it = memory_access.find(true_location);
+	auto
+	inc_memory_write_count
+	= [&] (
+		size_t true_location
+	) {
+		auto
+		it
+		= memory_access.find(true_location);
+
 		if (it == memory_access.end()) {
 			memory_access[true_location] = 0;
 		}
 		memory_access[true_location]++;
 	};
 
+	auto
+	get_name_memory_location
+	= [&] (
+		size_t true_location
+	) {
+		auto
+		it
+		= memory_location_name.find(true_location);
+
+		if (it != memory_location_name.end()) {
+			return it->second;
+		}
+
+		for (
+			auto item : flow.variables
+		) {
+			if (
+				true_memory_location(item.memory_location) == true_location
+			) {
+				memory_location_name[true_location] = "w" + std::to_string(true_location) + "_" + ninja_name(item.display);
+				return memory_location_name[true_location];
+			}
+		}
+
+		return "word_" + std::to_string(true_location);
+	};
+
 	std::map<std::string, bool> mentioned;
 
 	for (
-		auto item : flow.variables
+		auto&
+		item : flow.variables
 	) {
-		if (mentioned.contains(item.name)) {
+		if (
+			mentioned.contains(item.name)
+			|| !item.has_memory_location
+		) {
 			continue;
 		}
-		auto location = true_memory_location(item.memory_location);
 
-		std::cout << "q" << prefix << "_" << ninja_name(item.display) << "->" << "q" << prefix
-			<< "_word_"
-			<< location
-			<< "_access_"
+		auto
+		location
+		= true_memory_location(item.memory_location);
+
+		/*
+		std::cout
+			<< "q" << prefix  << "off" << memory_offset
+			<< "_" << ninja_name(item.display)
+			<< "->"
+			<< "q" << prefix << "_"
+			<< get_name_memory_location(location)
+			<< "_W"
 			<< get_memory_write_count(location)
 			<< "\n";
-		mentioned[item.name] = true;
+		*/
+
+		// mentioned[item.name] = true;
 	}
 
 	for (
-		auto
+		auto&
 		item
 		: flow.execution.sequence
 	) {
 
-		std::map<int, int> memory_input;
 
 		auto&
 		input
 		= item.input;
 
-		for (
-			auto
-			F_value
-			: item.applied.F
-		) {
-			auto true_loc = true_memory_location(input[F_value]);
-			memory_input[true_loc] = get_memory_write_count(true_loc);
-		}
-
-		for (
-			auto
-			G_value
-			: item.applied.G
-		) {
-			auto true_loc = true_memory_location(input[G_value]);
-			inc_memory_write_count(true_loc);
-		}
-
 
 		if (
-			item.function_call >= 0
+			item.function_call.size() > 0
 		) {
 
-			auto&
-			next_function
-			= meta.functions[item.function_call];
+			auto function_usr = item.function_call;
 
-			for(
-				auto i = 0;
-				i < next_function.parameters_count;
-				i++
-			) {
+			auto
+			it
+			= meta.usr_to_function.find(function_usr);
+
+			if (it == meta.usr_to_function.end()) {
+				/*
+
+				Try to look for the variable instead and check the memory content
+
+				*/
 
 				auto
-				param
-				= next_function.variables[i];
+				variable_index
+				= flow.usr_to_variable[function_usr];
 
-				auto
-				next_param
-				= next_function.variables[i + 1];
+				auto&
+				variable
+				= flow.variables[variable_index];
 
-				for (
-					int j = param.memory_location;
-					j < next_param.memory_location;
-					j++
-				) {
-					memory_mapping[j] = item.input[i];
+				auto it2
+				= memory_slice_functions
+					.find(
+						true_memory_location(
+							variable.memory_location
+						)
+					);
+
+				if (it2 != memory_slice_functions.end()) {
+					function_usr = it2->second;
+				} else {
+					assert(false);
 				}
 			}
 
-			execute_function(
+			auto&
+			next_function
+			= meta.functions[meta.usr_to_function[function_usr]];
+
+			std::map<int, int>
+			new_mapping {
+			};
+
+			int shift = 0;
+			if (next_function.parameters_count < item.input.size()){
+				shift = 1;
+			}
+
+			for(
+				auto i = shift;
+				i < item.input.size();
+				i++
+			) {
+				auto
+				param
+				= next_function.variables[i - shift];
+
+				auto next_func_location = param.memory_location;
+				auto actual_location = true_memory_location(item.input[i]);
+
+				auto size = type_size(meta.types, param.assumed_type);
+
+				for (
+					int j = next_func_location;
+					j < size + next_func_location;
+					j++
+				) {
+					new_mapping[j] = actual_location;
+					if (next_function.memory_slice_function_call.contains(j)) {
+						memory_slice_functions[actual_location] = next_function.memory_slice_function_call[j];
+					}
+				}
+			}
+
+			memory_mapping.push_back(new_mapping);
+			auto returned_location = execute_function(
+				memory_location_name,
 				prefix,
 				meta,
 				memory_access,
 				next_function,
+				memory_slice_functions,
 				memory_mapping,
-				memory_offset + flow.available_memory_location
+				next_memory_offset,
+				next_memory_offset
 			);
+			memory_mapping.pop_back();
+
+			if (returned_location) {
+				auto dummy_location = true_memory_location(item.applied.G[0]);
+				for (auto& all_mmap : memory_mapping) {
+					all_mmap[dummy_location] = returned_location.value();
+				}
+				if (memory_slice_functions.contains(dummy_location)) {
+					memory_slice_functions[returned_location.value()] = memory_slice_functions[dummy_location];
+				}
+			}
+
 		} else {
+			std::map<int, int> memory_input;
+
+			for (
+				auto
+				F_value
+				: item.applied.F
+			) {
+				auto true_loc = true_memory_location(input[F_value]);
+				memory_input[true_loc] = get_memory_write_count(true_loc);
+			}
+
+			for (
+				auto
+				G_value
+				: item.applied.G
+			) {
+				auto true_loc = true_memory_location(input[G_value]);
+				inc_memory_write_count(true_loc);
+			}
 			execute_simple_statement(
+				memory_location_name,
 				prefix,
 				flow,
 				memory_input,
@@ -2928,6 +3286,12 @@ void execute_function(
 				memory_offset
 			);
 		}
+	}
+
+	if (flow.return_variable_index >= 0) {
+		return true_memory_location(flow.variables[flow.return_variable_index].memory_location);
+	} else {
+		return std::nullopt;
 	}
 }
 
@@ -3034,19 +3398,28 @@ int main(){
 		<< "graph [ rankdir = \"LR\"]\n";
 
 	int i = 0;
+	std::map<int, int> access_count;
+	std::vector<std::map<int, int>> memmap {{}};
+	std::map<int, std::string> names;
+	int memory_offset = 0;
+	std::map<size_t, std::string> function_reference {};
+
 	for (auto& flow : code_db.functions) {
 		i++;
+		if (flow.is_templated) {
+			continue;
+		}
 
-		std::map<int, int> access_count;
-		std::map<int, int> memmap;
-
+		// if (flow.name.find("test_apply") != std::string::npos)
 		execute_function(
+			names,
 			i,
 			code_db,
 			access_count,
-			flow,
+			flow, function_reference,
 			memmap,
-			0
+			memory_offset,
+			memory_offset
 		);
 	}
 

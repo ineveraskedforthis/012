@@ -1,4 +1,15 @@
-/*
+
+
+template<typename G, typename F>
+int apply(G g, F f) {
+        return f(g);
+}
+
+int test_apply() {
+        auto f= [&](auto x){return x + 1;};
+        return apply(1, f) + apply(2, [&](auto x){return x * x;});
+}
+
 template<typename Taaa, typename  Gbbb, typename Fccc>
 Taaa the_silliest_battle(Taaa t, Gbbb g, Fccc f) {
         return t + g + f;
@@ -8,17 +19,17 @@ int the_strongest_clown(int a, int b, int c) {
         return the_silliest_battle(a, b, c) + the_silliest_battle(b, c, a) + the_silliest_battle(c, a, b);
 }
 
-*/
 
 void assignment_test() {
         int x = 1;
 }
 
+int add(int left, int right) {
+        return left + right;
+}
 
-/*
-
-int add(int a, int b) {
-        return a + b;
+int add_test(int a, int b) {
+        return add(add(a, b), add(a, b));
 }
 
 int super_add(int a, int b) {
@@ -45,6 +56,7 @@ void test11(){
         alpha = add(z, 5);
 }
 
+
 struct index_wrapper {
         int value;
         int index() {
@@ -67,10 +79,7 @@ struct small_container {
                 data_row.very_specific_wrapper.values()[i.index()] = k;
         }
 };
-*/
 
-
-/*
 
 template<typename  F>
 void parallel_for(int a, int b, F f) {};
@@ -156,16 +165,6 @@ void test_big_object(big_object& state) {
         state.inc();
 }
 
-template<typename G, typename F>
-int apply(G g, F f) {
-        return f(g);
-}
-
-int test() {
-        auto f= [&](auto x){return x + 1;};
-        return apply(1, f) + apply(2, [&](auto x){return x * x;});
-}
-
 
 namespace random_namespace {
 static int side_value;
@@ -247,5 +246,3 @@ int test_struct2() {
 
         return x.get_data() + x.super_function(x.data, 20);
 }
-
-*/
