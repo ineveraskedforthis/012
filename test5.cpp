@@ -519,6 +519,11 @@ get_root_usr(
 	CXCursor
 	c
 ) {
+
+	auto original_type = clang_getSpecializedCursorTemplate(clang_getCursorReferenced(c));
+
+	/*
+
 	auto
 	t
 	= clang_getCursorType(c);
@@ -537,11 +542,12 @@ get_root_usr(
 		original_functor = tc;
 		tc = clang_getSpecializedCursorTemplate(tc);
 	}
+	*/
 
 	CXString
 	usr_clang
 	= clang_getCursorUSR (
-		clang_getCursorReferenced(c)
+		clang_getCursorReferenced(original_type)
 	);
 
 	std::string
@@ -801,6 +807,18 @@ function_description {
 
 	int
 	parameters_count
+	= 0;
+
+	bool
+	is_dummy
+	= false;
+
+	bool
+	is_method
+	= false;
+
+	size_t
+	this_location
 	= 0;
 
 	bool
@@ -1120,8 +1138,26 @@ child_exist(
 			CXCursor parent,
 			CXClientData client_data
 		){
-			*(bool*)client_data = true;
-			return CXChildVisit_Break;
+
+			CXCursorKind
+			cursor_kind
+			= clang_getCursorKind(current_cursor);
+
+			if (
+				/*
+				cursor_kind == CXCursor_DeclRefExpr
+				|| cursor_kind == CXCursor_CXXNullPtrLiteralExpr
+				|| cursor_kind == CXCursor_IntegerLiteral
+				|| cursor_kind == CXCursor_FloatingLiteral
+				|| cursor_kind == CXCursor_StringLiteral
+				|| cursor_kind == CXCursor_ObjCBoolLiteralExpr
+				|| cursor_kind == CXCursor_CharacterLiteral
+				|| cursor_kind == CXCursor_UnexposedExpr
+				*/
+				cursor_kind != CXCursor_TypeRef
+			)
+				*(bool*)client_data = true;
+			return CXChildVisit_Continue;
 		},
 		&exist
 	);
@@ -1165,6 +1201,8 @@ handle_generic_cursor(
 	meta
 
 ) {
+
+	pretty_print(cursor, "\t");
 
 	CXCursorKind
 	cursor_kind
@@ -1322,6 +1360,10 @@ handle_generic_cursor(
 	) {
 		// check for definition:
 
+		if (usr.find("_Hash_representation") != std::string::npos) {
+			bool something_is_happening = true;
+		}
+
 		bool
 		has_definition
 		= false;
@@ -1342,15 +1384,41 @@ handle_generic_cursor(
 			&has_definition
 		);
 
-		if (
-			!has_definition
-		) {
-			return CXChildVisit_Break;
-		}
-
 		function_description
 		func {
 		};
+
+		bool already_defined = meta->usr_to_function.find(usr) != meta->usr_to_function.end();
+
+		if (
+			already_defined
+		) {
+			/*
+
+			We have found duplicate declaration.
+
+			*/
+
+			if (
+				has_definition
+			) {
+				/*
+
+				If we have found the declaration with actual definition
+				: rewrite the old function with the new one
+
+				*/
+			} else {
+				/*
+
+				Otherwise don't bother and return
+
+				*/
+				return CXChildVisit_Break;
+			}
+		}
+
+
 
 
 		if (cursor_kind == CXCursor_FunctionTemplate) {
@@ -1483,10 +1551,14 @@ handle_generic_cursor(
 		method.name = usr;
 		method.display = display;
 		method.parameters_count = 1;
+		method.is_method = true;
+
+		method.available_memory_location = meta->top_function().available_memory_location;
+		method.this_location = method.available_memory_location;
 
 		variable
-		this_param {
-		};
+		this_param
+		= allocate_space(meta->types, method, meta->type_stack.back());
 
 		this_param.is_reference_parameter = true;
 		this_param.assumed_type = meta->type_stack.back();
@@ -1527,14 +1599,43 @@ handle_generic_cursor(
 
 	if (
 		cursor_kind == CXCursor_OverloadedDeclRef
-		|| cursor_kind == CXCursor_ConceptSpecializationExpr
 	) {
+		return CXChildVisit_Break;
+	}
+
+	if (
+		cursor_kind == CXCursor_ConceptSpecializationExpr
+	) {
+		auto concept_dummy = allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+		concept_dummy.name = "Concept";
+		concept_dummy.display = "Concept";
+		meta->top_function().variables.push_back(concept_dummy);
 		return CXChildVisit_Break;
 	}
 
 	if (
 		cursor_kind == CXCursor_DeclRefExpr
 	) {
+		std::string old_usr = usr;
+
+		auto
+		original_template
+		= clang_getSpecializedCursorTemplate(clang_getCursorReferenced(cursor));
+
+		if (usr.find("_Hash_representation") != std::string::npos) {
+			bool something_is_happening = true;
+		}
+
+		if (
+			!clang_Cursor_isNull(original_template)
+		) {
+			usr = get_root_usr(cursor);
+			/*
+			CXString pretty = clang_getCursorUSR (clang_getCursorReferenced(original_template));
+			usr = clang_getCString(pretty);
+			clang_disposeString(pretty);
+			*/
+		}
 
 		// if (cursor_type.kind == CXType_FunctionProto) {
 			// return CXChildVisit_Break;
@@ -1594,8 +1695,42 @@ handle_generic_cursor(
 		if
 			(cursor_type.kind != CXType_FunctionProto
 		) {
-			assert(false);
+			variable
+			unknown_value
+			= allocate_space(
+				meta->types,
+				meta->top_function(),
+				PRIMITIVE_TYPE
+			);
+
+			unknown_value.name = usr;
+			unknown_value.name  = display;
+
+			func.variables.push_back(unknown_value);
+
+			return CXChildVisit_Break;
 		} else {
+			auto it = meta->usr_to_function.find(usr);
+
+			if (it == meta->usr_to_function.end()) {
+				/*
+
+				Create unknown function
+
+				*/
+
+				function_description
+				dummy_function
+				{};
+
+				dummy_function.is_dummy = true;
+				dummy_function.name = display + " DUMMY";
+				meta->usr_to_function[usr] = meta->functions.size();
+				meta->functions.push_back(dummy_function);
+
+				std::cout << "#Dummy was created " << usr << "\n";
+			}
+
 			variable
 			function_pointer
 			= allocate_space(
@@ -1608,7 +1743,7 @@ handle_generic_cursor(
 				->top_function()
 				.memory_slice_function_call
 				[function_pointer.memory_location]
-				= meta->usr_to_function[usr];
+				= usr;
 
 			function_pointer.act_of_transgression = true;
 			function_pointer.name = usr;
@@ -1687,6 +1822,7 @@ handle_generic_cursor(
 	}
 
 	if (cursor_kind == CXCursor_FriendDecl) {
+		handle_generic_cursor_children(cursor, meta);
 		return CXChildVisit_Break;
 	}
 
@@ -1700,7 +1836,20 @@ handle_generic_cursor(
 	}
 
 	if (cursor_kind == CXCursor_ParenExpr) {
-		handle_generic_cursor_children(cursor, meta);
+		if (cursor_type.kind == CXType_Dependent) {
+			/*
+
+			Skip for now
+
+			*/
+
+			auto concept_dummy = allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+			concept_dummy.name = "Dependent";
+			concept_dummy.display = "Dependent";
+			meta->top_function().variables.push_back(concept_dummy);
+		} else {
+			handle_generic_cursor_children(cursor, meta);
+		}
 		return CXChildVisit_Break;
 	}
 
@@ -1744,7 +1893,6 @@ handle_generic_cursor(
 			);
 
 
-
 			if (cursor_type.kind != CXType_LValueReference) {
 				target = allocate_space(
 					meta->types,
@@ -1765,11 +1913,21 @@ handle_generic_cursor(
 
 			*/
 
-			meta->top_function().memory_slice_pointer[target.memory_location]
-				= meta->top_function().memory_slice_pointer[source.memory_location];
 
-			meta->top_function().memory_slice_function_call[target.memory_location]
-				= meta->top_function().memory_slice_function_call[source.memory_location];
+			if (
+				meta->top_function().memory_slice_pointer.contains(source.memory_location)
+			) {
+				meta->top_function().memory_slice_pointer[target.memory_location]
+					= meta->top_function().memory_slice_pointer[source.memory_location];
+			}
+
+			if (
+				meta->top_function().memory_slice_function_call.contains(source.memory_location)
+			) {
+				meta->top_function().memory_slice_function_call[target.memory_location]
+					= meta->top_function().memory_slice_function_call[source.memory_location];
+			}
+
 
 			statement
 			write {
@@ -1781,6 +1939,12 @@ handle_generic_cursor(
 			};
 
 			meta->top_function().execution.sequence.push_back(write);
+		} else {
+			target =  allocate_space(
+				meta->types,
+				meta->top_function(),
+				cursor
+			);
 		}
 
 		target.name = usr;
@@ -2264,6 +2428,12 @@ handle_generic_cursor(
 		cursor_kind == CXCursor_CallExpr
 	) {
 
+		if (cursor_type.kind == CXType_Dependent) {
+			return CXChildVisit_Break;
+		}
+
+		std::string old_usr = usr;
+
 		auto
 		original_template
 		= clang_getSpecializedCursorTemplate(clang_getCursorReferenced(cursor));
@@ -2283,8 +2453,8 @@ handle_generic_cursor(
 		if (!clang_Cursor_isNull(referenced)) {
 			auto ref_kind = clang_getCursorKind(referenced);
 			if (ref_kind == CXCursor_Constructor) {
-				handle_generic_cursor_children(cursor, meta);
-				return CXChildVisit_Break;
+				// handle_generic_cursor_children(cursor, meta);
+				// return CXChildVisit_Break;
 			}
 		}
 
@@ -2615,12 +2785,30 @@ handle_generic_cursor(
 
 		*/
 
+		auto
+		has_child_node
+		= child_exist(cursor);
+
+		int parent_index = meta->top_function().variables.size() - 1;
+
+		if (!has_child_node) {
+			variable
+			implicit_this {
+			};
+
+			implicit_this.memory_location = 0;
+			implicit_this.assumed_type = meta->types.arrow_start[projection_it->second.id];
+			implicit_this.display = "Implicit this";
+			implicit_this.name = "this";
+			meta->top_function().variables.push_back(implicit_this);
+			parent_index++;
+		}
+
 		auto&
 		parent
 		= meta
 			->top_function()
-			.variables
-			.back();
+			.variables[parent_index];
 
 		variable
 		field_location {
@@ -2745,6 +2933,10 @@ handle_generic_cursor(
 	}
 
 	if(cursor_kind == CXCursor_UnexposedDecl) {
+		auto dummy = allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+		dummy.name = "Unexposed";
+		dummy.display = "Unexposed";
+		meta->top_function().variables.push_back(dummy);
 		return CXChildVisit_Break;
 	}
 
@@ -2881,6 +3073,39 @@ handle_generic_cursor(
 	return CXChildVisit_Recurse;
 }
 
+int
+map_memory(
+
+	std::vector<std::map<int, int>>&
+	memory_mapping,
+
+	int memory_offset,
+
+	size_t location
+
+) {
+	auto
+	it
+	= memory_mapping.back().find(location);
+	if (it == memory_mapping.back().end()) {
+		return (int) location + memory_offset;
+	}
+
+	int current_layer = memory_mapping.size() - 1;
+	auto true_loc = -1;
+	while (it != memory_mapping[current_layer].end() && current_layer > 0) {
+		if (true_loc == it->second) {
+			break;
+		}
+		true_loc = it->second;
+		current_layer--;
+		it = memory_mapping[current_layer].find(true_loc);
+	}
+	if (it != memory_mapping[current_layer].end() ) {
+		true_loc = it->second;
+	}
+	return true_loc;
+}
 
 void
 execute_simple_statement(
@@ -2910,27 +3135,14 @@ execute_simple_statement(
 	memory_offset
 
 ) {
+
 	auto
 	true_memory_location
 	= [&] (
 		size_t
 		location
 	) {
-		auto
-		it
-		= memory_mapping.back().find(location);
-		if (it == memory_mapping.back().end()) {
-			return (int) location + memory_offset;
-		}
-		auto true_loc = -1;
-		while (it != memory_mapping.back().end()) {
-			if (true_loc == it->second) {
-				break;
-			}
-			true_loc = it->second;
-			it = memory_mapping.back().find(true_loc);
-		}
-		return true_loc;
+		return  map_memory(memory_mapping, memory_offset, location);
 	};
 
 	auto
@@ -3008,6 +3220,9 @@ std::optional<size_t> execute_function(
 	function_description&
 	flow,
 
+	std::map<std::string, int> &
+	visit_count,
+
 	std::map<size_t, std::string>&
 	memory_slice_functions,
 
@@ -3021,7 +3236,22 @@ std::optional<size_t> execute_function(
 	next_memory_offset
 
 ) {
+
+	assert(
+		flow.name != "Root"
+	);
+
 	next_memory_offset = memory_offset + flow.available_memory_location;
+
+	if (!visit_count.contains(flow.name)) {
+		visit_count[flow.name] = 0;
+	} else {
+		visit_count[flow.name]++;
+		if (visit_count[flow.name] > 10) {
+			next_memory_offset++;
+			return next_memory_offset - 1;
+		}
+	}
 
 	auto
 	true_memory_location
@@ -3029,21 +3259,7 @@ std::optional<size_t> execute_function(
 		size_t
 		location
 	) {
-		auto
-		it
-		= memory_mapping.back().find(location);
-		if (it == memory_mapping.back().end()) {
-			return (int) location + memory_offset;
-		}
-		auto true_loc = -1;
-		while (it != memory_mapping.back().end()) {
-			if (true_loc == it->second) {
-				break;
-			}
-			true_loc = it->second;
-			it = memory_mapping.back().find(true_loc);
-		}
-		return true_loc;
+		return  map_memory(memory_mapping, memory_offset, location);
 	};
 
 
@@ -3162,6 +3378,8 @@ std::optional<size_t> execute_function(
 			it
 			= meta.usr_to_function.find(function_usr);
 
+			bool invalid_function = false;
+
 			if (it == meta.usr_to_function.end()) {
 				/*
 
@@ -3188,8 +3406,14 @@ std::optional<size_t> execute_function(
 				if (it2 != memory_slice_functions.end()) {
 					function_usr = it2->second;
 				} else {
-					assert(false);
+					function_usr = "";
+					invalid_function = true;
+					// assert(false);
 				}
+			}
+
+			if (invalid_function) {
+				continue;;
 			}
 
 			auto&
@@ -3200,24 +3424,69 @@ std::optional<size_t> execute_function(
 			new_mapping {
 			};
 
-			int shift = 0;
-			if (next_function.parameters_count < item.input.size()){
-				shift = 1;
+			int skip_input = 0;
+			int skip_parameter = 0;
+
+			if (next_function.is_method) {
+				/*
+
+				0 -> this
+
+				1 -> function
+
+				2 and so on -> parameters
+
+				*/
+
+				auto
+				this_location
+				= next_function.this_location;
+
+				auto
+				actual_location
+				= true_memory_location(item.input[0]);
+
+				auto
+				size
+				= type_size(meta.types, next_function.variables[0].assumed_type);
+
+				for (
+					int j = this_location;
+					j < size + this_location;
+					j++
+				) {
+					new_mapping[j] = actual_location;
+					if (next_function.memory_slice_function_call.contains(j)) {
+						memory_slice_functions[actual_location] = next_function.memory_slice_function_call[j];
+					}
+				}
+				skip_parameter = 1;
+				skip_input = 2;
+			} else if (next_function.parameters_count < item.input.size()){
+				skip_parameter = 0;
+				skip_input = 1;
 			}
 
 			for(
-				auto i = shift;
+				auto i = skip_input;
 				i < item.input.size();
 				i++
 			) {
 				auto
 				param
-				= next_function.variables[i - shift];
+				= next_function.variables[i - skip_input + skip_parameter];
 
-				auto next_func_location = param.memory_location;
-				auto actual_location = true_memory_location(item.input[i]);
+				auto
+				next_func_location
+				= param.memory_location;
 
-				auto size = type_size(meta.types, param.assumed_type);
+				auto
+				actual_location
+				= true_memory_location(item.input[i]);
+
+				auto
+				size
+				= type_size(meta.types, param.assumed_type);
 
 				for (
 					int j = next_func_location;
@@ -3238,6 +3507,7 @@ std::optional<size_t> execute_function(
 				meta,
 				memory_access,
 				next_function,
+				visit_count,
 				memory_slice_functions,
 				memory_mapping,
 				next_memory_offset,
@@ -3306,11 +3576,11 @@ int main(){
 
 	clang_parseTranslationUnit2FullArgv(
 		index,
-		"test_function.cpp",
+		// "test_function.cpp",
 		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
-		// "C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
-		flags.data(), flags.size(),
-		// flags2.data(), flags2.size(),
+		"C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
+		// flags.data(), flags.size(),
+		flags2.data(), flags2.size(),
 		nullptr, 0,
 		CXTranslationUnit_None,
 		&unit
@@ -3344,6 +3614,71 @@ int main(){
 
 	code_db.function_stack.push_back(0);
 
+	{
+		function_description
+		m128_assign {
+		};
+
+		m128_assign.display = "Assign m128";
+		m128_assign.available_memory_location = 0;
+
+		variable
+		first_var
+		= allocate_space(code_db.types, m128_assign, PRIMITIVE_TYPE);
+
+		variable
+		second_var
+		= allocate_space(code_db.types, m128_assign, PRIMITIVE_TYPE);
+
+		m128_assign.is_method = true;
+		m128_assign.parameters_count = 1;
+		m128_assign.execution.sequence.push_back(
+			{
+				{0, 1},
+				BASIC_INSTRUCTION::WRITE,
+			}
+		);
+
+		m128_assign.variables.push_back(first_var);
+		m128_assign.variables.push_back(second_var);
+
+		code_db.usr_to_function["c:@U@__m128i@F@operator=#&&$@U@__m128i#"] = code_db.functions.size();
+		code_db.functions.push_back(m128_assign);
+	}
+
+	//
+
+	{
+		function_description
+		m128_assign {
+		};
+
+		m128_assign.display = "X Length";
+		m128_assign.available_memory_location = 0;
+
+		variable
+		first_var
+		= allocate_space(code_db.types, m128_assign, PRIMITIVE_TYPE);
+
+		variable
+		second_var
+		= allocate_space(code_db.types, m128_assign, PRIMITIVE_TYPE);
+
+		m128_assign.is_method = true;
+		m128_assign.parameters_count = 1;
+		m128_assign.execution.sequence.push_back(
+			{
+				{0, 1},
+				BASIC_INSTRUCTION::WRITE,
+			}
+		);
+
+		m128_assign.variables.push_back(first_var);
+		m128_assign.variables.push_back(second_var);
+
+		code_db.usr_to_function["c:@N@std@ST>2#T#T@vector@F@_Xlength#S"] = code_db.functions.size();
+		code_db.functions.push_back(m128_assign);
+	}
 
 	//  we hardcode `parallel for` to launch lambdas
 
@@ -3411,12 +3746,19 @@ int main(){
 		}
 
 		// if (flow.name.find("test_apply") != std::string::npos)
+
+
+		std::map<std::string, int> visited {};
+
+		// if (flow.name.find("test_std_string") != std::string::npos)
+		if (flow.name.find("daily_update") != std::string::npos)
 		execute_function(
 			names,
 			i,
 			code_db,
 			access_count,
-			flow, function_reference,
+			flow, visited,
+			function_reference,
 			memmap,
 			memory_offset,
 			memory_offset

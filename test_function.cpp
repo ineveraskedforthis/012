@@ -1,5 +1,50 @@
+// #include <compare>
 
+// #include <xutility>
 
+#include <memory>
+extern "C++" void extern_function(const char*);
+
+int stupid_value_which_should_be_invisible = 666;
+
+void function_which_calls_extern_function() {
+        extern_function("aaaa");
+        int something = 1 + 5;
+}
+
+#include <exception>
+#include <hash_set>
+#include <utility>
+#include <string>
+
+std::partial_ordering po;
+std::hash t {};
+
+std::shared_ptr<int> t;
+
+struct string {
+        int data;
+
+        string operator+(string other) {
+                return {data + other.data};
+        }
+};
+
+string test_string(string q) {
+        string constant {1};
+        string a = q + constant;
+        string b = constant + q;
+        return a + b;
+}
+
+std::string test_std_string(std::string q) {
+        std::string constant {1};
+        std::string a = q + constant;
+        std::string b = constant + q;
+        return a + b;
+}
+
+/*
 template<typename G, typename F>
 int apply(G g, F f) {
         return f(g);
@@ -246,3 +291,4 @@ int test_struct2() {
 
         return x.get_data() + x.super_function(x.data, 20);
 }
+*/
