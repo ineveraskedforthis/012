@@ -342,6 +342,30 @@ type_arrow {
 
 };
 
+/*
+
+Represents endofunctors in the category of types.
+
+*/
+
+struct
+type_functor {
+	int
+	id;
+};
+
+/*
+
+Represents morphims in the category of endofunctors in the category of types.
+
+*/
+
+struct
+type_natural_transformation {
+	int
+	id;
+};
+
 
 /*
 
@@ -415,6 +439,13 @@ enriched_product {
 
 };
 
+/*
+
+This functor represents product functor.
+The constant functor case is handled separately
+because it represents non-templated arguments in templated functions.
+
+*/
 
 struct
 product_functor {
@@ -440,8 +471,8 @@ product_functor {
 		>
 	>
 	fixed_multipliers;
-
 };
+
 
 
 type_object
@@ -456,6 +487,38 @@ PRIMITIVE_TYPE {1};
 type_arrow
 PRIMITIVE_TYPE_IDENTITY_ARROW {1};
 
+enum class functor_family {
+	product, constant, identity
+};
+
+struct
+functor_data {
+
+	functor_family
+	family
+	= functor_family::identity;
+
+	type_object
+	constant_functor
+	{};
+
+	std::optional<product_functor>
+	product_data
+	{};
+
+};
+
+type_functor
+IDENTITY_FUNCTOR
+{0};
+
+type_functor
+PRIMITIVE_FUNCTOR
+{1};
+
+type_functor
+EMPTY_FUNCTOR
+{2};
 
 struct
 category_of_types {
@@ -465,6 +528,26 @@ category_of_types {
 
 	type_arrow
 	avaialble_arrow_id = {2};
+
+	type_functor
+	available_functor_id = {3};
+
+	std::vector<
+		functor_data
+	>
+	functor_data {
+		{
+			functor_family::identity
+		},
+		{
+			functor_family::constant,
+			PRIMITIVE_TYPE
+		},
+		{
+			functor_family::constant,
+			EMPTY_TYPE
+		}
+	};
 
 	std::vector<type_object>
 	arrow_start {
@@ -501,9 +584,21 @@ category_of_types {
 
 	std::map<
 		std::string,
-		product_functor
+		type_functor
 	>
-	template_usr_to_product_functor;
+	template_usr_to_functor;
+
+	std::map<
+		std::string,
+		type_natural_transformation
+	>
+	template_usr_to_natural_transformation;
+
+	std::map<
+		int,
+		size_t
+	>
+	arrow_to_function;
 
 	std::map<
 		int,
@@ -855,6 +950,17 @@ function_description {
 
 };
 
+struct function_parameter {
+	int
+	template_index
+	= -1;
+
+	type_object
+	actual_type
+	= PRIMITIVE_TYPE;
+};
+
+
 variable
 allocate_space(
 
@@ -935,11 +1041,11 @@ allocate_space(
 	auto
 	functor_exists
 	= C
-		.template_usr_to_product_functor
+		.template_usr_to_functor
 		.find(type_usr);
 
 	if (
-		functor_exists == C.template_usr_to_product_functor.end()
+		functor_exists == C.template_usr_to_functor.end()
 	) {
 
 		auto
@@ -1122,6 +1228,33 @@ handle_generic_cursor(
 ) ;
 
 bool
+any_child_exist(
+	CXCursor
+	cursor
+)
+{
+	bool
+	exist
+	= false;
+
+	clang_visitChildren(
+		cursor,
+		[](
+			CXCursor current_cursor,
+			CXCursor parent,
+			CXClientData client_data
+		){
+			*(bool*)client_data = true;
+			return CXChildVisit_Continue;
+		},
+		&exist
+	);
+
+	return exist;
+}
+
+
+bool
 child_exist(
 	CXCursor
 	cursor
@@ -1241,6 +1374,10 @@ handle_generic_cursor(
 	auto
 	hash
 	= clang_hashCursor(cursor);
+
+	if (display.find("partial_ordering") != std::string::npos) {
+		bool something_interesting = true;
+	}
 
 
 	if (
@@ -1493,15 +1630,43 @@ handle_generic_cursor(
 			type
 			= get_type(meta->types, cursor);
 
+			auto
+			t
+			= clang_getCursorType(cursor);
+
+			auto
+			tc
+			= clang_getTypeDeclaration(t);
+
+			auto
+			tcd
+			= clang_getTypedefDeclUnderlyingType(tc);
+			std::cout << "\t\tROOT TYPE: " << get_root_usr(cursor) << "\n";
+
 			if (
-				type
+				tcd.kind != CXType_Elaborated
 			) {
-				codomain_type = type.value();
-				local_offset = meta
-					->types
-					.type_to_product
-					[type.value().id]
-					.total_size;
+				/*
+
+				We are in an elaborated pointer
+				Proceed as usual.
+
+				*/
+
+
+			} else {
+				if (
+					type
+				) {
+					codomain_type = type.value();
+					local_offset = meta
+						->types
+						.type_to_product
+						[type.value().id]
+						.total_size;
+				} else {
+					assert(false);
+				}
 			}
 		}
 
@@ -2011,7 +2176,15 @@ handle_generic_cursor(
 				= clang_getCursorKind(current_cursor);
 
 				if (
+					kind == CXCursor_FriendDecl
+				) {
+					return CXChildVisit_Recurse;
+				};
+
+				if (
 					kind == CXCursor_CXXMethod
+					|| kind == CXCursor_FunctionTemplate
+					|| kind == CXCursor_FunctionDecl
 				) {
 					return CXChildVisit_Continue;
 				}
@@ -2051,7 +2224,15 @@ handle_generic_cursor(
 				= clang_getCursorKind(current_cursor);
 
 				if (
+					kind == CXCursor_FriendDecl
+				) {
+					return CXChildVisit_Recurse;
+				};
+
+				if (
 					kind != CXCursor_CXXMethod
+					&& kind != CXCursor_FunctionTemplate
+					&& kind != CXCursor_FunctionDecl
 				) {
 					return CXChildVisit_Continue;
 				}
@@ -2429,7 +2610,7 @@ handle_generic_cursor(
 	) {
 
 		if (cursor_type.kind == CXType_Dependent) {
-			return CXChildVisit_Break;
+			// return CXChildVisit_Break;
 		}
 
 		std::string old_usr = usr;
@@ -2462,18 +2643,15 @@ handle_generic_cursor(
 		command {
 		};
 
-		auto it = meta->usr_to_function.find(usr);
+		/*
+
+		In some cases USR is not provided here and this assignment does nothing.
+		We have to look into callable children and obtain it.
+		More detailed decription could be found in the MemberRefExpr handler
+
+		*/
 
 		command.function_call = usr;
-
-		variable
-		dummy
-		= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
-
-		dummy.name = "return_" + usr;
-		dummy.display = "Return value " + display;
-		dummy.is_return_dummy = true;
-
 
 		meta->call_stack.push_back(command);
 		clang_visitChildren(
@@ -2521,6 +2699,17 @@ handle_generic_cursor(
 		auto &
 		updated_command
 		= meta->call_stack.back();
+
+		assert(
+			updated_command.function_call.size() != 0
+		);
+
+		variable
+		dummy
+		= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+		dummy.name = "return_" + updated_command.function_call;
+		dummy.display = "Return value " + display;
+		dummy.is_return_dummy = true;
 
 		// updated_command.input.erase(updated_command.input.begin());
 
@@ -2733,6 +2922,20 @@ handle_generic_cursor(
 		}
 
 		if (usr == "") {
+			/*
+
+			It's an odd case when LibClang doesn't provide member information.
+			Just ignore it and handle children instead.
+
+			*/
+
+
+			if (any_child_exist(cursor)) {
+				handle_generic_cursor_children(cursor, meta);
+			} else {
+				assert(false);
+			}
+
 			return  CXChildVisit_Break;
 		}
 
@@ -2743,6 +2946,38 @@ handle_generic_cursor(
 		if (
 			projection_it == meta->types.name_to_arrow.end()
 		) {
+			/*
+
+			Can it actually happen in valid code?
+			Seems that the answer is YES.
+			When something attempts to call a method,
+			it could attempt to reference it as a member reference here!
+			We want to handle this case inside the CallExpr when
+			the function's USR is somehow omitted there.
+			So we want to return some kind of reference to the function
+			which could be used inside CallExpr
+
+			*/
+
+			auto method = meta->usr_to_function.find(usr);
+
+			if (method == meta->usr_to_function.end()) {
+				assert(
+					false
+				);
+			} else {
+				assert(
+					!meta->call_stack.empty()
+				);
+
+				if (
+					meta->call_stack.back().function_call.size() == 0
+				) {
+					meta->call_stack.back().function_call = usr;
+				}
+			}
+
+
 			return  CXChildVisit_Break;
 		}
 
@@ -3576,11 +3811,11 @@ int main(){
 
 	clang_parseTranslationUnit2FullArgv(
 		index,
-		// "test_function.cpp",
+		"test_function.cpp",
 		// "C:/_projects/cpp/alice/src/economy/economy.cpp",
-		"C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
-		// flags.data(), flags.size(),
-		flags2.data(), flags2.size(),
+		// "C:/_projects/cpp/alice/src/economy/economy_amalg.cpp",
+		flags.data(), flags.size(),
+		// flags2.data(), flags2.size(),
 		nullptr, 0,
 		CXTranslationUnit_None,
 		&unit
@@ -3750,8 +3985,8 @@ int main(){
 
 		std::map<std::string, int> visited {};
 
-		// if (flow.name.find("test_std_string") != std::string::npos)
-		if (flow.name.find("daily_update") != std::string::npos)
+		if (flow.name.find("move_wrapper") != std::string::npos)
+		// if (flow.name.find("daily_update") != std::string::npos)
 		execute_function(
 			names,
 			i,

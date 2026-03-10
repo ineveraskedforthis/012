@@ -1,7 +1,9 @@
 // #include <compare>
 
-// #include <xutility>
+// #include <utility>
 
+#include <xutility>
+/*
 #include <memory>
 extern "C++" void extern_function(const char*);
 
@@ -12,6 +14,33 @@ void function_which_calls_extern_function() {
         int something = 1 + 5;
 }
 
+// std::reverse_iterator t;
+*/
+
+using QQQQ = std::reference_wrapper<class Ty>;
+using WWWW= std::partial_ordering;
+using EEEE = std::weak_ordering;
+using TTT = std::ptrdiff_t;
+// using RRRR = std::weak_order;
+
+template<typename T>
+struct example_struct {
+        T example_field;
+        void example_method () {
+                example_field++;
+        }
+
+        void example_call_of_method () {
+                example_method();
+        }
+};
+
+// template<typename T>
+// T& move_wrapper(T&& item) {
+//         return std::move (item);
+// }
+
+/*
 #include <exception>
 #include <hash_set>
 #include <utility>
@@ -43,7 +72,7 @@ std::string test_std_string(std::string q) {
         std::string b = constant + q;
         return a + b;
 }
-
+*/
 /*
 template<typename G, typename F>
 int apply(G g, F f) {
