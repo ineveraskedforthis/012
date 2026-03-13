@@ -234,6 +234,10 @@ statement {
 	applied{
 	};
 
+	bool
+	await_function_to_call
+	= false;
+
 	std::string
 	function_call
 	= "";
@@ -909,6 +913,10 @@ function_description {
 	= false;
 
 	bool
+	await_definition
+	= false;
+
+	bool
 	is_method
 	= false;
 
@@ -1037,6 +1045,7 @@ allocate_space(
 	result.has_memory_location = true;
 	result.name = usr;
 	result.display = display;
+	result.assumed_type = PRIMITIVE_TYPE;
 
 	auto
 	functor_exists
@@ -1062,6 +1071,7 @@ allocate_space(
 			Case of literal type
 
 			*/
+			result.assumed_type = PRIMITIVE_TYPE;
 			F.available_memory_location++;
 		} else {
 			result.assumed_type = object_exists->second;
@@ -1276,6 +1286,15 @@ child_exist(
 			cursor_kind
 			= clang_getCursorKind(current_cursor);
 
+			if(
+				cursor_kind == CXCursor_InitListExpr
+			) {
+				if (child_exist(current_cursor)) {
+					*(bool*)client_data = true;
+				}
+				return CXChildVisit_Continue;
+			}
+
 			if (
 				/*
 				cursor_kind == CXCursor_DeclRefExpr
@@ -1288,8 +1307,10 @@ child_exist(
 				|| cursor_kind == CXCursor_UnexposedExpr
 				*/
 				cursor_kind != CXCursor_TypeRef
-			)
+				&& cursor_kind != CXCursor_TemplateRef
+			) {
 				*(bool*)client_data = true;
+			}
 			return CXChildVisit_Continue;
 		},
 		&exist
@@ -1335,7 +1356,7 @@ handle_generic_cursor(
 
 ) {
 
-	pretty_print(cursor, "\t");
+	// pretty_print(cursor, "\t");
 
 	CXCursorKind
 	cursor_kind
@@ -1353,6 +1374,9 @@ handle_generic_cursor(
 	usr {
 		clang_getCString(pretty)
 	};
+
+
+
 
 	clang_disposeString(pretty);
 
@@ -1377,6 +1401,15 @@ handle_generic_cursor(
 
 	if (display.find("partial_ordering") != std::string::npos) {
 		bool something_interesting = true;
+	}
+
+	if (display.find("_Variant_raw_get") != std::string::npos) {
+		/*
+
+		Because stack overflow
+
+		*/
+		return CXChildVisit_Break;
 	}
 
 
@@ -1495,6 +1528,10 @@ handle_generic_cursor(
 		cursor_kind == CXCursor_FunctionDecl
 		|| cursor_kind == CXCursor_FunctionTemplate
 	) {
+
+		if(usr.find("make_unique_for_overwrite") != std::string::npos) {
+			return CXChildVisit_Break;
+		}
 		// check for definition:
 
 		if (usr.find("_Hash_representation") != std::string::npos) {
@@ -1566,6 +1603,8 @@ handle_generic_cursor(
 
 		func.name = usr;
 		func.display = display;
+		func.await_definition = true;
+
 		meta->functions.push_back(func);
 		meta->usr_to_function[usr] = meta->functions.size() - 1;
 
@@ -1640,8 +1679,9 @@ handle_generic_cursor(
 
 			auto
 			tcd
-			= clang_getTypedefDeclUnderlyingType(tc);
-			std::cout << "\t\tROOT TYPE: " << get_root_usr(cursor) << "\n";
+			= clang_getCanonicalType(t);
+
+			// std::cout << "\t\tROOT TYPE: " << get_root_usr(cursor) << "\n";
 
 			if (
 				tcd.kind != CXType_Elaborated
@@ -1652,7 +1692,6 @@ handle_generic_cursor(
 				Proceed as usual.
 
 				*/
-
 
 			} else {
 				if (
@@ -1763,12 +1802,6 @@ handle_generic_cursor(
 	}
 
 	if (
-		cursor_kind == CXCursor_OverloadedDeclRef
-	) {
-		return CXChildVisit_Break;
-	}
-
-	if (
 		cursor_kind == CXCursor_ConceptSpecializationExpr
 	) {
 		auto concept_dummy = allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
@@ -1778,8 +1811,17 @@ handle_generic_cursor(
 		return CXChildVisit_Break;
 	}
 
+	if(
+		cursor_kind == CXCursor_DeclRefExpr
+		&& cursor_type.kind == CXType_Overload
+	) {
+		handle_generic_cursor_children(cursor, meta);
+		return CXChildVisit_Break;
+	}
+
 	if (
 		cursor_kind == CXCursor_DeclRefExpr
+		|| cursor_kind == CXCursor_OverloadedDeclRef
 	) {
 		std::string old_usr = usr;
 
@@ -1824,10 +1866,6 @@ handle_generic_cursor(
 
 		*/
 
-		auto&
-		func
-		= meta->top_function();
-
 		for (int stack_layer = meta->function_stack.size() - 1; stack_layer >= 0; stack_layer--) {
 
 			auto
@@ -1849,7 +1887,7 @@ handle_generic_cursor(
 				reference
 				= function_layer.variables[it->second];
 
-				func.variables.push_back(reference);
+				meta->top_function().variables.push_back(reference);
 
 				return CXChildVisit_Break;
 			}
@@ -1857,8 +1895,9 @@ handle_generic_cursor(
 
 		}
 
-		if
-			(cursor_type.kind != CXType_FunctionProto
+		if(
+			cursor_type.kind != CXType_FunctionProto
+			&& cursor_kind != CXCursor_OverloadedDeclRef
 		) {
 			variable
 			unknown_value
@@ -1871,16 +1910,32 @@ handle_generic_cursor(
 			unknown_value.name = usr;
 			unknown_value.name  = display;
 
-			func.variables.push_back(unknown_value);
+			meta->top_function().variables.push_back(unknown_value);
 
 			return CXChildVisit_Break;
 		} else {
-			auto it = meta->usr_to_function.find(usr);
+			/*
 
-			if (it == meta->usr_to_function.end()) {
+			Check prepared functions or already known functions
+
+			*/
+			auto it = meta->usr_to_function.find(usr);
+			auto it_display = meta->usr_to_function.find(display);
+
+			if (
+				it == meta->usr_to_function.end()
+				&& it_display != meta->usr_to_function.end()
+			) {
+				usr = display;
+			}
+
+			if (
+				it == meta->usr_to_function.end()
+				&& it_display == meta->usr_to_function.end()
+			) {
 				/*
 
-				Create unknown function
+				If neither contains the required function, create dummy function and report it.
 
 				*/
 
@@ -1890,10 +1945,14 @@ handle_generic_cursor(
 
 				dummy_function.is_dummy = true;
 				dummy_function.name = display + " DUMMY";
+				if (usr == "") {
+					usr = dummy_function.name;
+				}
+
 				meta->usr_to_function[usr] = meta->functions.size();
 				meta->functions.push_back(dummy_function);
 
-				std::cout << "#Dummy was created " << usr << "\n";
+				std::cout << "#Dummy was created " << usr  << " " << dummy_function.name << "\n";
 			}
 
 			variable
@@ -1912,9 +1971,14 @@ handle_generic_cursor(
 
 			function_pointer.act_of_transgression = true;
 			function_pointer.name = usr;
-			function_pointer.name  = display;
+			function_pointer.display = display;
 
-			func.variables.push_back(function_pointer);
+			meta->top_function().variables.push_back(function_pointer);
+
+			if (meta->call_stack.size() > 0 && meta->call_stack.back().await_function_to_call) {
+				meta->call_stack.back().function_call = usr;
+				meta->call_stack.back().await_function_to_call = false;
+			}
 
 			return CXChildVisit_Break;
 		}
@@ -2126,6 +2190,14 @@ handle_generic_cursor(
 		|| cursor_kind == CXCursor_ClassTemplate // TODO
 		|| cursor_kind == CXCursor_ClassDecl
 	) {
+
+		if (
+			display.find("unique_ptr") != std::string::npos
+			|| display.find("checked_array_iterator")  != std::string::npos
+		) {
+			return CXChildVisit_Break;
+		}
+
 		/*
 
 		Currently we treat all of these cases the same way.
@@ -2653,6 +2725,10 @@ handle_generic_cursor(
 
 		command.function_call = usr;
 
+		if (usr.size() == 0) {
+			command.await_function_to_call = true;
+		}
+
 		meta->call_stack.push_back(command);
 		clang_visitChildren(
 			cursor,
@@ -2664,6 +2740,15 @@ handle_generic_cursor(
 				auto
 				scope
 				= (meta_information*) client_data;
+
+				auto cursor_kind = clang_getCursorKind(current_cursor);
+
+				if (
+					cursor_kind == CXCursor_TypeRef
+					|| cursor_kind == CXCursor_TemplateRef
+				) {
+					return CXChildVisit_Continue;
+				}
 
 				handle_generic_cursor(
 					current_cursor,
@@ -2700,24 +2785,53 @@ handle_generic_cursor(
 		updated_command
 		= meta->call_stack.back();
 
-		assert(
-			updated_command.function_call.size() != 0
-		);
+		/*
 
-		variable
-		dummy
-		= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
-		dummy.name = "return_" + updated_command.function_call;
-		dummy.display = "Return value " + display;
-		dummy.is_return_dummy = true;
+		Sometimes libclang is stuck and doesn't parse certain function calls properly
+		It is what it is: we skip these calls by treating them as a custom command
+
+		*/
+
+		if (updated_command.function_call.size() == 0) {
+			updated_command.function_call = "";
+			updated_command.await_function_to_call = false;
+			updated_command.indirect_function_call = false;
+			for (
+				auto i = 0;
+				i < updated_command.input.size();
+				i++
+			) {
+				updated_command.applied.F.push_back(i);
+			}
+			variable
+			dummy
+			= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+			dummy.name = "Unknown call";
+			updated_command.input.push_back(dummy.memory_location);
+
+			updated_command.applied.G.push_back(updated_command.input.size() - 1);
+
+			meta->top_function().execution.sequence.push_back(updated_command);
+			meta->call_stack.pop_back();
+			meta->top_function().variables.push_back(dummy);
+		} else {
+			variable
+			dummy
+			= allocate_space(meta->types, meta->top_function(), PRIMITIVE_TYPE);
+			dummy.name = "return_" + updated_command.function_call;
+			dummy.display = "Return value " + display;
+			dummy.is_return_dummy = true;
+
+			updated_command.applied.G.push_back(dummy.memory_location);
+
+			meta->top_function().execution.sequence.push_back(updated_command);
+			meta->call_stack.pop_back();
+			meta->top_function().variables.push_back(dummy);
+		}
+
 
 		// updated_command.input.erase(updated_command.input.begin());
 
-		updated_command.applied.G.push_back(dummy.memory_location);
-
-		meta->top_function().execution.sequence.push_back(updated_command);
-		meta->call_stack.pop_back();
-		meta->top_function().variables.push_back(dummy);
 
 		return CXChildVisit_Break;
 	}
@@ -2943,6 +3057,7 @@ handle_generic_cursor(
 		projection_it
 		= meta->types.name_to_arrow.find(usr);
 
+
 		if (
 			projection_it == meta->types.name_to_arrow.end()
 		) {
@@ -2954,7 +3069,7 @@ handle_generic_cursor(
 			it could attempt to reference it as a member reference here!
 			We want to handle this case inside the CallExpr when
 			the function's USR is somehow omitted there.
-			So we want to return some kind of reference to the function
+			So we want to return some kind of a reference to the function
 			which could be used inside CallExpr
 
 			*/
@@ -2962,9 +3077,9 @@ handle_generic_cursor(
 			auto method = meta->usr_to_function.find(usr);
 
 			if (method == meta->usr_to_function.end()) {
-				assert(
-					false
-				);
+				// assert(
+					// false
+				// );
 			} else {
 				assert(
 					!meta->call_stack.empty()
@@ -2972,10 +3087,13 @@ handle_generic_cursor(
 
 				if (
 					meta->call_stack.back().function_call.size() == 0
+					&& meta->call_stack.back().await_function_to_call
 				) {
 					meta->call_stack.back().function_call = usr;
+					meta->call_stack.back().await_function_to_call = false;
 				}
 			}
+
 
 
 			return  CXChildVisit_Break;
@@ -3022,7 +3140,7 @@ handle_generic_cursor(
 
 		auto
 		has_child_node
-		= child_exist(cursor);
+		= any_child_exist(cursor);
 
 		int parent_index = meta->top_function().variables.size() - 1;
 
@@ -3108,6 +3226,9 @@ handle_generic_cursor(
 	if (
 		cursor_kind == CXCursor_UnaryOperator
 	) {
+		if (meta->top_function().await_definition) {
+			return CXChildVisit_Break;
+		}
 
 		bool
 		mutates
@@ -3198,6 +3319,10 @@ handle_generic_cursor(
 		cursor_kind == CXCursor_BinaryOperator
 		|| cursor_kind == CXCursor_CompoundAssignOperator
 	) {
+		if (meta->top_function().await_definition) {
+			return CXChildVisit_Break;
+		}
+
 		bool mutates_left = false;
 		bool left_is_input = true;
 		auto binary = clang_getCursorBinaryOperatorKind(cursor);
@@ -3351,6 +3476,9 @@ execute_simple_statement(
 	int&
 	prefix,
 
+	meta_information&
+	meta,
+
 	function_description&
 	flow,
 
@@ -3393,16 +3521,19 @@ execute_simple_statement(
 			return it->second;
 		}
 
+		/*
 		for (
 			auto item : flow.variables
 		) {
 			if (
-				true_memory_location(item.memory_location) == true_location
+				true_memory_location(item.memory_location) <= true_location
+				&& true_memory_location(item.memory_location) + type_size(meta.types, item.assumed_type) > true_location
 			) {
 				memory_location_name[true_location] = "w" + std::to_string(true_location) + "_" + ninja_name(item.display);
 				return memory_location_name[true_location];
 			}
 		}
+		*/
 
 		return "word_" + std::to_string(true_location);
 	};
@@ -3545,22 +3676,26 @@ std::optional<size_t> execute_function(
 			return it->second;
 		}
 
+		/*
 		for (
 			auto item : flow.variables
 		) {
 			if (
-				true_memory_location(item.memory_location) == true_location
+				true_memory_location(item.memory_location) <= true_location
+				&& true_memory_location(item.memory_location) + type_size(meta.types, item.assumed_type) > true_location
 			) {
 				memory_location_name[true_location] = "w" + std::to_string(true_location) + "_" + ninja_name(item.display);
 				return memory_location_name[true_location];
 			}
 		}
+		*/
 
 		return "word_" + std::to_string(true_location);
 	};
 
-	std::map<std::string, bool> mentioned;
 
+
+	std::map<std::string, bool> mentioned;
 	for (
 		auto&
 		item : flow.variables
@@ -3571,24 +3706,21 @@ std::optional<size_t> execute_function(
 		) {
 			continue;
 		}
-
 		auto
 		location
 		= true_memory_location(item.memory_location);
-
-		/*
-		std::cout
-			<< "q" << prefix  << "off" << memory_offset
-			<< "_" << ninja_name(item.display)
-			<< "->"
-			<< "q" << prefix << "_"
-			<< get_name_memory_location(location)
-			<< "_W"
-			<< get_memory_write_count(location)
-			<< "\n";
-		*/
-
-		// mentioned[item.name] = true;
+		for (int shift = 0; shift < type_size(meta.types, item.assumed_type); shift++) {
+			std::cout
+				<< "q" << prefix  << "off" << memory_offset
+				<< "_" << ninja_name(item.display)
+				<< "->"
+				<< "q" << prefix << "_"
+				<< get_name_memory_location(location + shift)
+				<< "_W"
+				<< get_memory_write_count(location + shift)
+				<< "\n";
+		}
+		mentioned[item.name] = true;
 	}
 
 	for (
@@ -3783,6 +3915,7 @@ std::optional<size_t> execute_function(
 			execute_simple_statement(
 				memory_location_name,
 				prefix,
+				meta,
 				flow,
 				memory_input,
 				memory_access,
@@ -3790,6 +3923,36 @@ std::optional<size_t> execute_function(
 				item,
 				memory_offset
 			);
+		}
+	}
+
+	{
+		std::map<std::string, bool> mentioned;
+		for (
+			auto&
+			item : flow.variables
+		) {
+			if (
+				mentioned.contains(item.name)
+				|| !item.has_memory_location
+			) {
+				continue;
+			}
+			auto
+			location
+			= true_memory_location(item.memory_location);
+			for (int shift = 0; shift < type_size(meta.types, item.assumed_type); shift++) {
+				std::cout
+					<< "q" << prefix  << "off" << memory_offset
+					<< "_" << ninja_name(item.display)
+					<< "->"
+					<< "q" << prefix << "_"
+					<< get_name_memory_location(location + shift)
+					<< "_W"
+					<< get_memory_write_count(location + shift)
+					<< "\n";
+			}
+			mentioned[item.name] = true;
 		}
 	}
 
@@ -3879,6 +4042,103 @@ int main(){
 
 		code_db.usr_to_function["c:@U@__m128i@F@operator=#&&$@U@__m128i#"] = code_db.functions.size();
 		code_db.functions.push_back(m128_assign);
+	}
+
+	{
+		function_description
+		OPERATOR_BINARY {
+		};
+
+		OPERATOR_BINARY.display = "operator_binary";
+		OPERATOR_BINARY.available_memory_location = 0;
+
+		variable
+		first_var
+		= allocate_space(code_db.types, OPERATOR_BINARY, PRIMITIVE_TYPE);
+
+		variable
+		second_var
+		= allocate_space(code_db.types, OPERATOR_BINARY, PRIMITIVE_TYPE);
+
+		variable
+		result
+		= allocate_space(code_db.types, OPERATOR_BINARY, PRIMITIVE_TYPE);
+
+		OPERATOR_BINARY.is_method = true;
+		OPERATOR_BINARY.parameters_count = 1;
+		OPERATOR_BINARY.execution.sequence.push_back(
+			{
+				{0, 1, 2},
+				BASIC_INSTRUCTION::BINARY_PURE,
+			}
+		);
+
+		OPERATOR_BINARY.variables.push_back(first_var);
+		OPERATOR_BINARY.variables.push_back(second_var);
+		OPERATOR_BINARY.variables.push_back(result);
+
+		code_db.usr_to_function["operator-"] = code_db.functions.size();
+		code_db.usr_to_function["operator+"] = code_db.functions.size();
+		code_db.usr_to_function["operator<"] = code_db.functions.size();
+		code_db.usr_to_function["operator>"] = code_db.functions.size();
+		code_db.functions.push_back(OPERATOR_BINARY);
+	}
+
+	{
+		product_functor
+		vector {
+		};
+
+		vector.name = "Custom vector";
+		vector.number_of_arguments = 1;
+		vector.fixed_multipliers = {
+			{
+				"Custom vector size",
+				PRIMITIVE_TYPE
+			}
+		};
+		vector.result.push_back({
+			"Custom vector data",
+			0
+		});
+
+		{
+			function_description
+			vector_data
+			{};
+
+			vector_data.display = "Get vector data";
+			vector_data.parameters_count = 1;
+			vector_data.is_method = true;
+
+			/*
+
+			Add THIS
+
+			*/
+
+			/*
+			variable
+			this_param
+			= allocate_space(meta->types, method, meta->type_stack.back());
+
+			this_param.is_reference_parameter = true;
+			this_param.assumed_type = meta->type_stack.back();
+			this_param.name = "this";
+			this_param.display = "This";
+			*/
+
+			/*
+
+			Create variable which points to location of data
+
+			*/
+
+			vector_data.execution.sequence.push_back({
+				{0, 1},
+				BASIC_INSTRUCTION::WRITE
+			});
+		}
 	}
 
 	//
@@ -3985,7 +4245,7 @@ int main(){
 
 		std::map<std::string, int> visited {};
 
-		if (flow.name.find("move_wrapper") != std::string::npos)
+		if (flow.name.find("test_wrapper") != std::string::npos)
 		// if (flow.name.find("daily_update") != std::string::npos)
 		execute_function(
 			names,

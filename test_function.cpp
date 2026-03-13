@@ -1,8 +1,9 @@
 // #include <compare>
 
 // #include <utility>
-
+/*
 #include <xutility>
+*/
 /*
 #include <memory>
 extern "C++" void extern_function(const char*);
@@ -10,30 +11,36 @@ extern "C++" void extern_function(const char*);
 int stupid_value_which_should_be_invisible = 666;
 
 void function_which_calls_extern_function() {
-        extern_function("aaaa");
-        int something = 1 + 5;
+	extern_function("aaaa");
+	int something = 1 + 5;
 }
 
 // std::reverse_iterator t;
 */
 
-using QQQQ = std::reference_wrapper<class Ty>;
-using WWWW= std::partial_ordering;
-using EEEE = std::weak_ordering;
-using TTT = std::ptrdiff_t;
+// using QQQQ = std::reference_wrapper<class Ty>;
+// using WWWW= std::partial_ordering;
+// using EEEE = std::weak_ordering;
+// using TTT = std::ptrdiff_t;
+// using YYY = std::initializer_list<class Elem>;
 // using RRRR = std::weak_order;
 
+// using YYYY = _stat32;
+/*
 template<typename T>
 struct example_struct {
-        T example_field;
-        void example_method () {
-                example_field++;
-        }
+	T example_field;
+	void example_method () {
+		example_field++;
+	}
 
-        void example_call_of_method () {
-                example_method();
-        }
+	void example_call_of_method () {
+		example_method();
+	}
 };
+*/
+
+
 
 // template<typename T>
 // T& move_wrapper(T&& item) {
@@ -41,117 +48,112 @@ struct example_struct {
 // }
 
 /*
-#include <exception>
-#include <hash_set>
-#include <utility>
 #include <string>
 
-std::partial_ordering po;
-std::hash t {};
-
-std::shared_ptr<int> t;
 
 struct string {
-        int data;
+	int data;
 
-        string operator+(string other) {
-                return {data + other.data};
-        }
+	string operator+(string other) {
+		return {data + other.data};
+	}
 };
 
 string test_string(string q) {
-        string constant {1};
-        string a = q + constant;
-        string b = constant + q;
-        return a + b;
+	string constant {1};
+	string a = q + constant;
+	string b = constant + q;
+	return a + b;
 }
 
-std::string test_std_string(std::string q) {
-        std::string constant {1};
-        std::string a = q + constant;
-        std::string b = constant + q;
-        return a + b;
+std::string test_std_string(std::string QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ) {
+	std::string TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTconstant {1};
+	std::string AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA = QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ + TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTconstant;
+	std::string BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB = TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTconstant + QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ;
+	std::string RESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULT = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA + BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB;
+
+	return RESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULTRESULT;
 }
 */
 /*
 template<typename G, typename F>
 int apply(G g, F f) {
-        return f(g);
+	return f(g);
 }
 
 int test_apply() {
-        auto f= [&](auto x){return x + 1;};
-        return apply(1, f) + apply(2, [&](auto x){return x * x;});
+	auto f= [&](auto x){return x + 1;};
+	return apply(1, f) + apply(2, [&](auto x){return x * x;});
 }
 
 template<typename Taaa, typename  Gbbb, typename Fccc>
 Taaa the_silliest_battle(Taaa t, Gbbb g, Fccc f) {
-        return t + g + f;
+	return t + g + f;
 }
 
 int the_strongest_clown(int a, int b, int c) {
-        return the_silliest_battle(a, b, c) + the_silliest_battle(b, c, a) + the_silliest_battle(c, a, b);
+	return the_silliest_battle(a, b, c) + the_silliest_battle(b, c, a) + the_silliest_battle(c, a, b);
 }
 
 
 void assignment_test() {
-        int x = 1;
+	int x = 1;
 }
 
 int add(int left, int right) {
-        return left + right;
+	return left + right;
 }
 
 int add_test(int a, int b) {
-        return add(add(a, b), add(a, b));
+	return add(add(a, b), add(a, b));
 }
 
 int super_add(int a, int b) {
-        int x = add(a, b);
-        return x;
+	int x = add(a, b);
+	return x;
 }
 
 void test10(){
-        int x = 1;
-        int y = 2;
-        int z = add(x, y);
-        int* alpha = &x;
-        *alpha = z + 5;
+	int x = 1;
+	int y = 2;
+	int z = add(x, y);
+	int* alpha = &x;
+	*alpha = z + 5;
 }
 
 void test11(){
-        int x = 1;
-        int y = 2;
-        int z = add(x, y);
-        int& alpha = x;
-        x += 10;
-        x += 20;
-        x += 40;
-        alpha = add(z, 5);
+	int x = 1;
+	int y = 2;
+	int z = add(x, y);
+	int& alpha = x;
+	x += 10;
+	x += 20;
+	x += 40;
+	alpha = add(z, 5);
 }
 
 
 struct index_wrapper {
-        int value;
-        int index() {
-                return value - 1;
-        }
+	int value;
+	int index() {
+		return value - 1;
+	}
 };
 
 struct small_container {
-        struct very_specific_wrapper_type {
-                struct small_field {
-                        int data[640];
-                        // int* data;
-                        auto  values() { return data; }
-                } very_specific_wrapper;
-        } data_row;
-        int get_data(index_wrapper i) {
-                return data_row.very_specific_wrapper.values()[i.index()];
-        }
-        void change_data(index_wrapper i, int k) {
-                data_row.very_specific_wrapper.values()[i.index()] = k;
-        }
+	struct very_specific_wrapper_type {
+		struct small_field {
+			int data[640];
+			// int* data;
+			auto  values() { return data; }
+		} very_specific_wrapper;
+	} data_row;
+	int get_data(index_wrapper i) {
+		return data_row.very_specific_wrapper.values()[i.index()];
+	}
+	void change_data(index_wrapper i, int k) {
+		data_row.very_specific_wrapper.values()[i.index()] = k;
+	}
 };
 
 
@@ -159,84 +161,84 @@ template<typename  F>
 void parallel_for(int a, int b, F f) {};
 
 void small_test (small_container& container) {
-        int VERY_IMPORTANT_VALUE = 666;
-        parallel_for(1, VERY_IMPORTANT_VALUE, [&](int value){
-                index_wrapper id {value};
-                container.change_data(id, container.get_data(id)  + value);
-                id.value = id.value + 10;
-                container.change_data(id, container.get_data(id) + value);
-                container.change_data(id, container.get_data(id) + value);
-        });
+	int VERY_IMPORTANT_VALUE = 666;
+	parallel_for(1, VERY_IMPORTANT_VALUE, [&](int value){
+		index_wrapper id {value};
+		container.change_data(id, container.get_data(id)  + value);
+		id.value = id.value + 10;
+		container.change_data(id, container.get_data(id) + value);
+		container.change_data(id, container.get_data(id) + value);
+	});
 }
 
 struct field {
-        int* data;
-        int* values() {
-                return data;
-        }
+	int* data;
+	int* values() {
+		return data;
+	}
 };
 
 struct container {
-        field data1;
-        float* data2;
-        unsigned int* data3;
+	field data1;
+	float* data2;
+	unsigned int* data3;
 
-        int get_data1(int i) {
-                return data1.values()[i];
-        }
+	int get_data1(int i) {
+		return data1.values()[i];
+	}
 
-        void change_data1(int i, int k) {
-                data1.values()[i] = k;
-        }
+	void change_data1(int i, int k) {
+		data1.values()[i] = k;
+	}
 };
 
 namespace sys {
 struct state {
-        container world;
-        float quality1;
-        float quality2;
-        float quality3;
+	container world;
+	float quality1;
+	float quality2;
+	float quality3;
 };
 }
 
 int test_pointer(sys::state& state) {
-        auto x  = state.world.get_data1(10);
-        state.world.change_data1(10, x + 5);
-        return x + 1;
+	auto x  = state.world.get_data1(10);
+	state.world.change_data1(10, x + 5);
+	return x + 1;
 }
 template<typename F>
 void apply_x(sys::state& state, F f) {
-        state.quality1 = f(state.quality1);
+	state.quality1 = f(state.quality1);
 }
 
 void update(sys::state& state1, sys::state& state2) {
-        state1.quality1 = state2.quality3 + state2.world.data2[2];
-        state2.world.data3[5] = state2.world.data3[4] * state2.world.get_data1(1);
-        if (state1.quality1 > 5) {
-                state1.quality1 = state1.quality1 + 2;
-        }
+	state1.quality1 = state2.quality3 + state2.world.data2[2];
+	state2.world.data3[5] = state2.world.data3[4] * state2.world.get_data1(1);
+	if (state1.quality1 > 5) {
+		state1.quality1 = state1.quality1 + 2;
+	}
 
-        for (auto i = 5; i < 10; i++) {
-                state1.quality2 += state2.quality2;
-        }
+	for (auto i = 5; i < 10; i++) {
+		state1.quality2 += state2.quality2;
+	}
 
-        apply_x(state1, [&](auto x) {return x + 1;});
+	apply_x(state1, [&](auto x) {return x + 1;});
 }
 
 
 struct big_object {
-        int x;
-        void inc() {
-                x++;
-        }
+	int x;
+	void inc() {
+		x++;
+	}
 };
 
 void test_big_object(big_object& state) {
-        state.inc();
-        state.inc();
-        state.inc();
-        state.inc();
-        state.inc();
+	state.inc();
+	state.inc();
+	state.inc();
+	state.inc();
+	state.inc();
 }
 
 
@@ -245,35 +247,35 @@ static int side_value;
 }
 
 void function_with_side_effect() {
-        random_namespace::side_value++;
+	random_namespace::side_value++;
 }
 void function_with_side_effect2() {
-        random_namespace::side_value+=1;
+	random_namespace::side_value+=1;
 }
 
 
 
 namespace cool_functions {
 int test_function_1(int a, int b) {
-        int c = a + b;
-        random_namespace::side_value = a - b;
-        function_with_side_effect();
-        function_with_side_effect() ;
-        function_with_side_effect() ;
-        function_with_side_effect() ;
-        return c;
+	int c = a + b;
+	random_namespace::side_value = a - b;
+	function_with_side_effect();
+	function_with_side_effect() ;
+	function_with_side_effect() ;
+	function_with_side_effect() ;
+	return c;
 }
 int test_function_2(int a, int b) {
-        int c = add(a, b);
-        random_namespace::side_value = add(a ,-b);
-        function_with_side_effect();
-        return c;
+	int c = add(a, b);
+	random_namespace::side_value = add(a ,-b);
+	function_with_side_effect();
+	return c;
 }
 }
 
 namespace lame_functions{
 void lame_function() {
-        function_with_side_effect();
+	function_with_side_effect();
 }
 }
 
@@ -282,42 +284,86 @@ void lame_function() {
 
 template<typename T>
 struct stupid_struct{
-        T data;
-        int counter;
-        T get_data(){
-                this->counter++;
-                return data;
-        }
+	T data;
+	int counter;
+	T get_data(){
+		this->counter++;
+		return data;
+	}
 };
 
 
 
 int test_struct() {
-        stupid_struct<float> x = {5};
-        x.data = 10;
-        return x.get_data();
+	stupid_struct<float> x = {5};
+	x.data = 10;
+	return x.get_data();
 }
 
 struct smart_struct{
-        int data;
-        int counter;
-        int get_data(){
-                this->counter = this->counter + 1;
-                return data;
-        }
-        int super_function(int a, int b) {
-                data ++;
-                counter += a + b;
-                return  a + data;
-        }
+	int data;
+	int counter;
+	int get_data(){
+		this->counter = this->counter + 1;
+		return data;
+	}
+	int super_function(int a, int b) {
+		data ++;
+		counter += a + b;
+		return  a + data;
+	}
 };
 
 int test_struct2() {
-        smart_struct x = {5};
-        if (x.data == 6) {
-                x.data = 10;
-        }
+	smart_struct x = {5};
+	if (x.data == 6) {
+		x.data = 10;
+	}
 
-        return x.get_data() + x.super_function(x.data, 20);
+	return x.get_data() + x.super_function(x.data, 20);
 }
 */
+
+/*
+
+void pass_by_reference(int& a, int& b) {
+	a = a + 1;
+	b = b + 1;
+}
+
+void test_pass_by_reference() {
+	int A = 0;
+	int B = 0;
+	int C = 0;
+	pass_by_reference(A, B);
+	pass_by_reference(B, C);
+	pass_by_reference(A, C);
+}
+*/
+
+// #include <memory>
+// #include <bit>
+// std::make_shared_for_overwrite<_Not_unbounded_builtin_array Ty>()
+
+// #include <functional>
+// #include <vector>
+// #include "stdext"
+// #include "thread"
+// #include "variant"
+
+// using  TGSFSEF = stdext::checked_array_iterator<class Ptr>;
+
+#include <vector>
+
+struct wrapper {
+	std::vector<char> data;
+
+	int get() {
+		return data.data()[0];
+	}
+};
+
+
+void test_wrapper(wrapper& w) {
+	auto a = w.get();
+}
